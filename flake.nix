@@ -95,6 +95,7 @@
               cmake
               gettext
               git
+              gitlint
               librsvg
               nodejs
               openocd

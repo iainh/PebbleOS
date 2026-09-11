@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# PebbleOS has no persistent services or authentication to restore.

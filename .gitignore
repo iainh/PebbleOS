@@ -68,3 +68,4 @@ artifacts/
 .claude/settings.local.json
 .envrc
 .direnv
+.amp/portals/*

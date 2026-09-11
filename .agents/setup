@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+nix_profile="/nix/var/nix/profiles/default"
+nix_bin="$nix_profile/bin/nix"
+
+timed() {
+  local label="$1"
+  shift
+  local start=$SECONDS
+  printf '\n==> %s\n' "$label"
+  "$@"
+  printf '<== %s (%ss)\n' "$label" "$((SECONDS - start))"
+}
+
+install_nix() {
+  curl --proto '=https' --tlsv1.2 -sSf -L \
+    https://install.determinate.systems/nix |
+    sh -s -- install --no-confirm
+}
+
+update_submodules() {
+  git submodule sync --recursive
+  git submodule update --init --recursive
+}
+
+activate_dev_shell() {
+  local login_path="$PATH"
+  # shellcheck disable=SC1091
+  source "$nix_profile/etc/profile.d/nix-daemon.sh"
+  eval "$("$nix_bin" print-dev-env "$repo_root")"
+  export PATH="$PATH:$login_path:$nix_profile/bin"
+  command -v arm-none-eabi-gcc >/dev/null
+  command -v qemu-pebble >/dev/null
+  command -v pbl >/dev/null
+}
+
+if [[ ! -x "$nix_bin" ]]; then
+  timed "Installing Determinate Nix" install_nix
+else
+  printf 'Determinate Nix is already installed: %s\n' "$("$nix_bin" --version)"
+fi
+
+timed "Updating Git submodules" update_submodules
+
+profile_marker="# PebbleOS Nix development shell"
+profile_end_marker="# End PebbleOS Nix development shell"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+  cat >>"$HOME/.bash_profile" <<EOF
+
+$profile_marker
+if [[ -z "\${IN_NIX_SHELL:-}" && "\${PWD:-}" == "$repo_root" ]]; then
+  pebbleos_login_path="\$PATH"
+  # shellcheck disable=SC1091
+  source "$nix_profile/etc/profile.d/nix-daemon.sh"
+  eval "\$("$nix_bin" print-dev-env "$repo_root")"
+  export PATH="\$PATH:\$pebbleos_login_path:$nix_profile/bin"
+  unset pebbleos_login_path
+fi
+$profile_end_marker
+EOF
+fi
+
+timed "Realizing and activating the Nix development shell" activate_dev_shell
+
+printf '\nPebbleOS orb setup complete.\n'
