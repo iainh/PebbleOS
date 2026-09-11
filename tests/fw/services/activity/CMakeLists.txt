@@ -56,6 +56,7 @@ pbl_clar_test(test_activity_insights
 pbl_clar_test(test_kraepelin_algorithm
   SOURCES
     src/fw/services/activity/kraepelin/kraepelin_algorithm.c
+    ${kraepelin_pim_sources}
     tests/fakes/fake_rtc.c
     tests/fw/services/activity/step_samples.c
     tests/fw/services/activity/sleep_samples_v1.c
@@ -65,6 +66,13 @@ pbl_clar_test(test_kraepelin_algorithm
     tests/fw/services/activity/kraepelin_reference/raw_stats.c
   DEFINES DUMA_DISABLED CONFIG_HRM
   OVERRIDES dummy_board
+  LIBS ${kraepelin_pim_libs}
+)
+
+pbl_clar_test(test_kraepelin_pim
+  SOURCES
+    ${kraepelin_pim_sources}
+  LIBS ${kraepelin_pim_libs}
 )
 
 pbl_clar_test(test_activity_algorithm_kraepelin

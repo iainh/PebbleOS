@@ -23,6 +23,11 @@ config ANCS_UTIL_RUST
     help
       Replace the C ANCS attribute parser with the Rust implementation.
 
+config KRAEPELIN_PIM_RUST
+    bool "Rust Kraepelin PIM filter"
+    help
+      Replace the C Kraepelin PIM filter with the optimized Rust implementation.
+
 config SETTINGS_ICONS
     bool "Settings menu icons"
     help

@@ -203,6 +203,19 @@ else()
   set(ancs_util_sources src/fw/comm/ble/kernel_le_client/ancs/ancs_util.c)
 endif()
 
+if(CONFIG_KRAEPELIN_PIM_RUST)
+  include(rust)
+  pbl_rust_object(pebble_kraepelin_pim
+    ${PBL_BASE}/src/fw/services/activity/kraepelin/kraepelin-pim-rust
+    rust_object)
+  add_library(test_kraepelin_pim_rust STATIC ${rust_object})
+  set_target_properties(test_kraepelin_pim_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(test_kraepelin_pim_rust pebble_kraepelin_pim_rust_build)
+  set(kraepelin_pim_libs test_kraepelin_pim_rust)
+else()
+  set(kraepelin_pim_sources src/fw/services/activity/kraepelin/kraepelin_pim.c)
+endif()
+
 # Every directory that declares tests.
 file(GLOB_RECURSE pbl_test_dirs CONFIGURE_DEPENDS
      RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} */CMakeLists.txt)
