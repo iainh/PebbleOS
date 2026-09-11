@@ -168,6 +168,17 @@ pbl_test_broken(
   test_gap_le_connect
 )
 
+if(CONFIG_BASE64_RUST)
+  include(rust)
+  pbl_rust_object(pebble_base64 ${PBL_BASE}/src/fw/util/base64-rust rust_object)
+  add_library(test_base64_rust STATIC ${rust_object})
+  set_target_properties(test_base64_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(test_base64_rust pebble_base64_rust_build)
+  set(base64_libs test_base64_rust)
+else()
+  set(base64_sources src/fw/util/base64.c)
+endif()
+
 # Every directory that declares tests.
 file(GLOB_RECURSE pbl_test_dirs CONFIGURE_DEPENDS
      RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} */CMakeLists.txt)

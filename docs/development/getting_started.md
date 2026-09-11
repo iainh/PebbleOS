@@ -84,17 +84,22 @@ rustc --version
 ```
 
 `rust-toolchain.toml` selects that toolchain inside the checkout. Cargo builds
-use the checked-in lock file in frozen/offline mode, so incremental firmware
-builds do not access the network. Enable the Rust CRC-32 implementation with
-`pbl configure --board <board> -DCONFIG_CRC32_RUST=y`.
+use checked-in lock files in frozen/offline mode, so incremental firmware
+builds do not access the network. Rust implementations can be selected with
+`CONFIG_CRC32_RUST` and `CONFIG_BASE64_RUST`, for example:
+
+```shell
+pbl configure --board <board> -DCONFIG_CRC32_RUST=y -DCONFIG_BASE64_RUST=y
+```
 
 To build and run its host C-ABI tests:
 
 ```shell
 cmake -S tests -B build-test-rust -GNinja \
-  -DPBL_TEST_IMAGES=OFF -DCONFIG_CRC32_RUST=ON
-cmake --build build-test-rust --target test_crc32
-ctest --test-dir build-test-rust -R '^test_crc32$' --output-on-failure
+  -DPBL_TEST_IMAGES=OFF -DCONFIG_CRC32_RUST=ON -DCONFIG_BASE64_RUST=ON
+cmake --build build-test-rust --target test_crc32 test_base64
+ctest --test-dir build-test-rust \
+  -R '^(test_crc32|test_base64)$' --output-on-failure
 ```
 
 ## System-level dependencies

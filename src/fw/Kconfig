@@ -8,6 +8,11 @@ rsource "services/Kconfig"
 
 menu "Software Features"
 
+config BASE64_RUST
+    bool "Rust Base64 implementation"
+    help
+      Replace the C Base64 implementation with the Rust implementation.
+
 config SETTINGS_ICONS
     bool "Settings menu icons"
     help

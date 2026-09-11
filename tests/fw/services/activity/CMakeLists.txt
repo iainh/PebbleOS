@@ -6,7 +6,7 @@ pbl_clar_test(test_activity
     src/fw/applib/health_service.c
     src/fw/flash_region/flash_region.c
     src/fw/flash_region/filesystem_regions.c
-    src/fw/util/base64.c
+    ${base64_sources}
     src/fw/util/stats.c
     src/fw/util/time/time.c
     src/fw/util/time/mktime.c
@@ -30,11 +30,12 @@ pbl_clar_test(test_activity
     tests/fakes/fake_spi_flash.c
   DEFINES DUMA_DISABLED CAPABILITY_HAS_HEALTH_TRACKING=1 CONFIG_HRM CONFIG_SERVICE_ACTIVITY_BATCH_SAMPLES=25
   OVERRIDES dummy_board
+  LIBS ${base64_libs}
 )
 
 pbl_clar_test(test_activity_insights
   SOURCES
-    src/fw/util/base64.c
+    ${base64_sources}
     src/fw/util/crc8.c
     src/fw/util/stats.c
     src/fw/util/time/time.c
@@ -49,6 +50,7 @@ pbl_clar_test(test_activity_insights
     tests/fakes/fake_kernel_services_notifications.c
     tests/fakes/fake_rtc.c
   OVERRIDES dummy_board
+  LIBS ${base64_libs}
 )
 
 pbl_clar_test(test_kraepelin_algorithm
@@ -69,7 +71,7 @@ pbl_clar_test(test_activity_algorithm_kraepelin
   SOURCES
     src/fw/flash_region/flash_region.c
     src/fw/flash_region/filesystem_regions.c
-    src/fw/util/base64.c
+    ${base64_sources}
     src/fw/util/crc8.c
     src/fw/util/shared_circular_buffer.c
     src/fw/util/time/time.c
@@ -87,6 +89,7 @@ pbl_clar_test(test_activity_algorithm_kraepelin
     tests/fakes/fake_spi_flash.c
   DEFINES DUMA_DISABLED
   OVERRIDES dummy_board
+  LIBS ${base64_libs}
 )
 
 pbl_clar_test(test_health_util

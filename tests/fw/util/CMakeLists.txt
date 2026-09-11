@@ -1,10 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Core Devices LLC
 # SPDX-License-Identifier: Apache-2.0
 
-pbl_clar_test(test_base64
-  SOURCES
-    src/fw/util/base64.c
-)
+pbl_clar_test(test_base64 SOURCES ${base64_sources} LIBS ${base64_libs})
 
 pbl_clar_test(test_shared_circular_buffer
   SOURCES
