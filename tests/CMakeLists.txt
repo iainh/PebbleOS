@@ -179,6 +179,17 @@ else()
   set(base64_sources src/fw/util/base64.c)
 endif()
 
+if(CONFIG_COBS_RUST)
+  include(rust)
+  pbl_rust_object(pebble_cobs ${PBL_BASE}/src/fw/console/cobs-rust rust_object)
+  add_library(test_cobs_rust STATIC ${rust_object})
+  set_target_properties(test_cobs_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(test_cobs_rust pebble_cobs_rust_build)
+  set(cobs_libs test_cobs_rust)
+else()
+  set(cobs_sources src/fw/console/cobs.c)
+endif()
+
 # Every directory that declares tests.
 file(GLOB_RECURSE pbl_test_dirs CONFIGURE_DEPENDS
      RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} */CMakeLists.txt)

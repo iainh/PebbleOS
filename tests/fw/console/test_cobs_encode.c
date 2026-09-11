@@ -16,12 +16,11 @@ static void assert_out_not_touched(size_t index) {
   cl_assert_equal_i(out[index], 0xcc);
 }
 
-static void assert_out_equal(const void * restrict expected, size_t length) {
+static void assert_out_equal(const void *restrict expected, size_t length) {
   cl_assert(memcmp(out, expected, length) == 0);
 }
 
-static void assert_encode(const void * restrict src, size_t in_length,
-                          size_t expected_length) {
+static void assert_encode(const void *restrict src, size_t in_length, size_t expected_length) {
   size_t out_length = cobs_encode(out, src, in_length);
   cl_assert_equal_i(out_length, expected_length);
   if (expected_length != SIZE_MAX) {
@@ -29,13 +28,17 @@ static void assert_encode(const void * restrict src, size_t in_length,
   }
 }
 
-
 void test_cobs_encode__initialize(void) {
   memset(out, 0xcc, sizeof(out));
 }
 
 void test_cobs_encode__empty(void) {
   assert_encode("", 0, 1);
+  assert_out_equal("\x01", 1);
+}
+
+void test_cobs_encode__empty_null_source(void) {
+  assert_encode(NULL, 0, 1);
   assert_out_equal("\x01", 1);
 }
 
@@ -52,6 +55,46 @@ void test_cobs_encode__simple(void) {
 void test_cobs_encode__multiple_blocks(void) {
   assert_encode("Hello\0w\0rld", 11, 12);
   assert_out_equal("\x06Hello\x02w\x04rld", 12);
+}
+
+void test_cobs_encode__overlapping_buffers(void) {
+  const char input[] = "Hello\0w\0rld";
+  memcpy(out + COBS_OVERHEAD(sizeof(input) - 1), input, sizeof(input) - 1);
+
+  size_t length = cobs_encode(out, out + COBS_OVERHEAD(sizeof(input) - 1), sizeof(input) - 1);
+
+  cl_assert_equal_i(length, 12);
+  assert_out_equal("\x06Hello\x02w\x04rld", length);
+  assert_out_not_touched(length);
+}
+
+void test_cobs_encode__production_overlap_boundaries(void) {
+  enum {
+    LegacyLength = 525,
+    Pulse2Length = 1506,
+    MaxEncodedLength = MAX_SIZE_AFTER_COBS_ENCODING(Pulse2Length),
+  };
+  uint8_t input[Pulse2Length];
+  uint8_t expected[MaxEncodedLength];
+  uint8_t overlapping[MaxEncodedLength + 1];
+  for (size_t i = 0; i < sizeof(input); ++i) {
+    input[i] = (i % 0xfe) + 1;
+  }
+
+  const size_t lengths[] = {LegacyLength, Pulse2Length};
+  for (size_t i = 0; i < sizeof(lengths) / sizeof(lengths[0]); ++i) {
+    const size_t input_length = lengths[i];
+    const size_t offset = COBS_OVERHEAD(input_length);
+    const size_t expected_length = cobs_encode(expected, input, input_length);
+    memset(overlapping, 0xcc, sizeof(overlapping));
+    memcpy(overlapping + offset, input, input_length);
+
+    size_t actual_length = cobs_encode(overlapping, overlapping + offset, input_length);
+
+    cl_assert_equal_i(actual_length, expected_length);
+    cl_assert(memcmp(overlapping, expected, expected_length) == 0);
+    cl_assert_equal_i(overlapping[actual_length], 0xcc);
+  }
 }
 
 void test_cobs_encode__max_block_1(void) {

@@ -13,6 +13,11 @@ config BASE64_RUST
     help
       Replace the C Base64 implementation with the Rust implementation.
 
+config COBS_RUST
+    bool "Rust COBS implementation"
+    help
+      Replace the C COBS implementation with the Rust implementation.
+
 config SETTINGS_ICONS
     bool "Settings menu icons"
     help
