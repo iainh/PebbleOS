@@ -112,8 +112,9 @@ pbl_clar_test(test_ancs_util
     src/fw/util/time/mktime.c
     src/fw/util/buffer.c
     src/fw/util/time/time.c
-    src/fw/comm/ble/kernel_le_client/ancs/ancs_util.c
+    ${ancs_util_sources}
     tests/fakes/fake_rtc.c
+  LIBS ${ancs_util_libs}
 )
 
 pbl_clar_test(test_ancs
@@ -122,7 +123,7 @@ pbl_clar_test(test_ancs
     src/fw/util/pstring.c
     src/fw/util/time/mktime.c
     src/fw/util/time/time.c
-    src/fw/comm/ble/kernel_le_client/ancs/ancs_util.c
+    ${ancs_util_sources}
     src/fw/comm/ble/kernel_le_client/ancs/ancs.c
     src/fw/comm/ble/kernel_le_client/ancs/ancs_app_name_storage.c
     src/fw/services/regular_timer/service.c
@@ -141,6 +142,7 @@ pbl_clar_test(test_ancs
     src/fw/services/timeline/attributes_actions.c
     src/fw/services/timeline/attribute_group.c
     src/fw/services/timeline/attribute.c
+  LIBS ${ancs_util_libs}
 )
 
 pbl_clar_test(test_kernel_le_client

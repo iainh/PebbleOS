@@ -3,7 +3,7 @@
 
 pbl_clar_test(test_ancs_pebble_actions
   SOURCES
-    src/fw/comm/ble/kernel_le_client/ancs/ancs_util.c
+    ${ancs_util_sources}
     src/fw/flash_region/filesystem_regions.c
     src/fw/flash_region/flash_region.c
     src/fw/services/blob_db/ios_notif_pref_db.c
@@ -32,6 +32,7 @@ pbl_clar_test(test_ancs_pebble_actions
     third_party/tinymt/TinyMT/tinymt/tinymt32.c
     tests/fakes/fake_spi_flash.c
   OVERRIDES dummy_board
+  LIBS ${ancs_util_libs}
 )
 
 pbl_clar_test(test_timeline_actions

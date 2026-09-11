@@ -190,6 +190,19 @@ else()
   set(cobs_sources src/fw/console/cobs.c)
 endif()
 
+if(CONFIG_ANCS_UTIL_RUST)
+  include(rust)
+  pbl_rust_object(pebble_ancs_util
+    ${PBL_BASE}/src/fw/comm/ble/kernel_le_client/ancs/ancs-util-rust
+    rust_object)
+  add_library(test_ancs_util_rust STATIC ${rust_object})
+  set_target_properties(test_ancs_util_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(test_ancs_util_rust pebble_ancs_util_rust_build)
+  set(ancs_util_libs test_ancs_util_rust)
+else()
+  set(ancs_util_sources src/fw/comm/ble/kernel_le_client/ancs/ancs_util.c)
+endif()
+
 # Every directory that declares tests.
 file(GLOB_RECURSE pbl_test_dirs CONFIGURE_DEPENDS
      RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} */CMakeLists.txt)

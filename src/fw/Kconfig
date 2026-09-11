@@ -18,6 +18,11 @@ config COBS_RUST
     help
       Replace the C COBS implementation with the Rust implementation.
 
+config ANCS_UTIL_RUST
+    bool "Rust ANCS attribute parser"
+    help
+      Replace the C ANCS attribute parser with the Rust implementation.
+
 config SETTINGS_ICONS
     bool "Settings menu icons"
     help
