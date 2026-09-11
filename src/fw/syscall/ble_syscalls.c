@@ -84,13 +84,8 @@ DEFINE_SYSCALL(BTErrno, sys_ble_client_read, BLECharacteristic characteristic) {
   return gatt_client_op_read(characteristic, GAPLEClientApp);
 }
 
-DEFINE_SYSCALL(bool, sys_ble_client_get_notification_value_length,
-                     BLECharacteristic *characteristic_out,
-                     uint16_t *value_length_out) {
+DEFINE_SYSCALL(bool, sys_ble_client_get_notification_value_length, uint16_t *value_length_out) {
   if (PRIVILEGE_WAS_ELEVATED) {
-    if (characteristic_out) {
-      syscall_assert_userspace_buffer(characteristic_out, sizeof(*characteristic_out));
-    }
     if (value_length_out) {
       syscall_assert_userspace_buffer(value_length_out, sizeof(*value_length_out));
     }
@@ -99,9 +94,6 @@ DEFINE_SYSCALL(bool, sys_ble_client_get_notification_value_length,
   const bool has_notification = gatt_client_subscriptions_get_notification_header(GAPLEClientApp,
                                                                                   &header);
   if (has_notification) {
-    if (characteristic_out) {
-      *characteristic_out = header.characteristic;
-    }
     if (value_length_out) {
       *value_length_out = header.value_length;
     }

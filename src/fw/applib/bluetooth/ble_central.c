@@ -3,6 +3,8 @@
 
 #include "ble_central.h"
 
+#include "ble_app_support.h"
+
 #include "process_state/app_state/app_state.h"
 
 #include "comm/ble/gap_le_connect.h"
@@ -16,7 +18,7 @@ static BTErrno prv_bt_errno_for_event(const PebbleBLEConnectionEvent *e) {
   return e->hci_reason;
 }
 
-void ble_central_handle_event(PebbleEvent *e) {
+void ble_central_handle_event(PebbleEvent *e, void *context) {
   BLEAppState *ble_app_state = app_state_get_ble_app_state();
   if (!ble_app_state->connection_handler) {
     return;

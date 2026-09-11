@@ -33,6 +33,10 @@ typedef struct {
   uint8_t gatt_client_num_handlers;
 } BLEAppState;
 
+void ble_scan_handle_event(PebbleEvent *e, void *context);
+void ble_central_handle_event(PebbleEvent *e, void *context);
+void ble_client_handle_event(PebbleEvent *e, void *context);
+
 //! Initializes the static BLE state for the currently running app.
 void ble_init_app_state(void);
 

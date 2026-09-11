@@ -10,15 +10,6 @@
 
 #include "process_state/app_state/app_state.h"
 
-//! @see ble_scan.c
-extern void ble_scan_handle_event(PebbleEvent *e, void *context);
-
-//! @see ble_central.c
-extern void ble_central_handle_event(PebbleEvent *e, void *context);
-
-//! @see ble_client.c
-extern void ble_client_handle_event(PebbleEvent *e, void *context);
-
 void ble_init_app_state(void) {
   BLEAppState *ble_app_state = app_state_get_ble_app_state();
   *ble_app_state = (const BLEAppState) {

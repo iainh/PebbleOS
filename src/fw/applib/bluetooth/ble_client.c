@@ -227,7 +227,7 @@ static PrvHandler prv_handler_for_subtype(
 }
 
 // Exported for ble_app_support.c
-void ble_client_handle_event(PebbleEvent *e) {
+void ble_client_handle_event(PebbleEvent *e, void *context) {
   const PebbleBLEGATTClientEvent *gatt_event = &e->bluetooth.le.gatt_client;
   prv_handler_for_subtype(gatt_event->subtype)(gatt_event);
 }

@@ -123,8 +123,8 @@ void sys_event_service_client_subscribe(EventServiceInfo *handler);
 void sys_event_service_client_unsubscribe(EventServiceInfo *state, EventServiceInfo *handler);
 void sys_event_service_cleanup(PebbleEvent *e);
 
-int sys_ble_scan_start(void);
-int sys_ble_scan_stop(void);
+bool sys_ble_scan_start(void);
+bool sys_ble_scan_stop(void);
 bool sys_ble_scan_is_scanning(void);
 bool sys_ble_consume_scan_results(uint8_t *buffer, uint16_t *size_in_out);
 int8_t sys_ble_get_advertising_tx_power(void);

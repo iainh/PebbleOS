@@ -17,7 +17,7 @@ extern uint8_t __isr_stack_start__[];
 
 extern int main(void);
 
-NORETURN prv_startup(void) {
+USED NORETURN prv_startup(void) {
   // Copy data section from flash to RAM
   for (int i = 0; i < (__data_end - __data_start); i++) {
     __data_start[i] = __data_load_start[i];

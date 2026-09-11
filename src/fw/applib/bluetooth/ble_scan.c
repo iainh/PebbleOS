@@ -3,6 +3,8 @@
 
 #include "ble_scan.h"
 
+#include "ble_app_support.h"
+
 #include "applib/app_logging.h"
 #include "applib/applib_malloc.auto.h"
 
@@ -13,8 +15,7 @@
 
 #include "syscall/syscall.h"
 
-
-void ble_scan_handle_event(PebbleEvent *e) {
+void ble_scan_handle_event(PebbleEvent *e, void *context) {
   BLEAppState *ble_app_state = app_state_get_ble_app_state();
   if (!ble_app_state->scan_handler) {
     return;
