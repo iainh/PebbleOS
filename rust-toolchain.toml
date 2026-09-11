@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: 2026 Core Devices LLC
+# SPDX-License-Identifier: Apache-2.0
+
+[toolchain]
+channel = "1.89.0"
+profile = "minimal"
+targets = ["thumbv7em-none-eabi", "thumbv8m.main-none-eabi"]

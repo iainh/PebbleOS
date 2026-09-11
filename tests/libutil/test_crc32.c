@@ -38,6 +38,10 @@ void test_crc32__null(void) {
   cl_assert_equal_i(crc, 0);
 }
 
+void test_crc32__null_ignores_crc_and_length(void) {
+  assert_equal_hex(crc32(0x12345678, NULL, 17), 0);
+}
+
 void test_crc32__empty_buffer(void) {
   crc = crc32(crc, "arbitrary pointer", 0);
   assert_equal_hex(crc, 0);
@@ -51,6 +55,12 @@ void test_crc32__one_byte(void) {
 void test_crc32__standard_check(void) {
   // "Check" value from "A Painless Guide to CRC Error Detection Algorithms"
   crc = crc32(crc, "123456789", 9);
+  assert_equal_hex(crc, 0xCBF43926);
+}
+
+void test_crc32__incremental(void) {
+  crc = crc32(crc, "12", 2);
+  crc = crc32(crc, "3456789", 7);
   assert_equal_hex(crc, 0xCBF43926);
 }
 

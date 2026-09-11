@@ -26,6 +26,7 @@ jobs:
               - '.github/workflows/nix.yml'
               - 'flake.nix'
               - 'flake.lock'
+              - 'rust-toolchain.toml'
 
   nix-shell:
     needs: changes-nix
@@ -63,12 +64,16 @@ jobs:
           nix develop --command bash -c '
             set -ex
             arm-none-eabi-gcc --version
+            rustc --version
+            cargo --version
             qemu-pebble --version
             sftool --version
           '
 
       - name: Configure
-        run: nix develop --command pbl configure --board asterix
+        run: >-
+          nix develop --command pbl configure --board asterix
+          -DCONFIG_CRC32_RUST=y
 
       - name: Build
         run: nix develop --command pbl build

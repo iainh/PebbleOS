@@ -3,10 +3,14 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-25.11";
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { self, nixpkgs }:
+    { self, nixpkgs, fenix }:
     let
       sdkVersion = "0.1.8";
       sdkBundles = {
@@ -31,6 +35,20 @@
         let
           pkgs = import nixpkgs { inherit system; };
           bundle = sdkBundles.${system};
+          rustManifestHash = "sha256-+9FmLhAOezBZCOziO0Qct1NOrfpjNsXxc/8I0c7BdKE=";
+          rustFor = target: (fenix.packages.${system}.targets.${target}.toolchainOf {
+            channel = "1.89.0";
+            sha256 = rustManifestHash;
+          }).rust-std;
+          rustHost = fenix.packages.${system}.toolchainOf {
+            channel = "1.89.0";
+            sha256 = rustManifestHash;
+          };
+          rustToolchain = fenix.packages.${system}.combine [
+            (rustHost.withComponents [ "cargo" "rustc" "rustfmt" ])
+            (rustFor "thumbv7em-none-eabi")
+            (rustFor "thumbv8m.main-none-eabi")
+          ];
           pebbleos-sdk = pkgs.stdenv.mkDerivation {
             pname = "pebbleos-sdk";
             version = sdkVersion;
@@ -92,6 +110,7 @@
             ];
             buildInputs = with pkgs; [
               pebbleos-sdk
+              rustToolchain
               cmake
               gettext
               git

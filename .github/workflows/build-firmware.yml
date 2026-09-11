@@ -24,6 +24,8 @@ jobs:
               - '.github/actions/**'
               - '.github/workflows/build-firmware.yml'
               - 'boards/**'
+              - 'include/**'
+              - 'lib/**'
               - 'platform/**'
               - 'resources/**'
               - 'sdk/**'
@@ -34,6 +36,47 @@ jobs:
               - 'cmake/**'
               - 'CMakeLists.txt'
               - 'Kconfig'
+              - 'rust-toolchain.toml'
+
+  build-rust:
+    needs: changes-firmware
+    if: needs.changes-firmware.outputs.should-build == 'true'
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/coredevices/pebbleos-docker:v7
+    strategy:
+      matrix:
+        board: [asterix, obelix@pvt]
+    steps:
+      - name: Mark Github workspace as safe
+        run: git config --system --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Rebase onto target branch
+        uses: ./.github/actions/rebase
+        with:
+          submodules: true
+
+      - name: Install Python dependencies
+        run: |
+          pip install -U pip
+          pip install -r requirements.txt
+
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+
+      - name: Configure Rust firmware
+        run: >-
+          pbl configure --board '${{ matrix.board }}'
+          -DCONFIG_CRC32_RUST=y -DCONFIG_MODDABLE_XS=n
+
+      - name: Build Rust firmware
+        run: pbl build
 
   build-firmware:
     needs: changes-firmware

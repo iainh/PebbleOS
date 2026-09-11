@@ -22,6 +22,7 @@ jobs:
             src:
               - '.github/actions/**'
               - '.github/workflows/test.yml'
+              - 'rust-toolchain.toml'
               - 'cmake/**'
               - 'include/**'
               - 'lib/**'
@@ -61,10 +62,20 @@ jobs:
           pip install -U pip
           pip install -r requirements.txt
 
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+
       - name: Run tests
         # ctest runs the whole suite before reporting, so one failure does
         # not hide the rest. The job still fails if anything failed.
         run: pbl test
+
+      - name: Run Rust CRC-32 tests
+        run: |
+          cmake -S tests -B build-test-rust -GNinja \
+            -DPBL_TEST_IMAGES=OFF -DCONFIG_CRC32_RUST=ON
+          cmake --build build-test-rust --target test_crc32
+          ctest --test-dir build-test-rust -R '^test_crc32$' --output-on-failure
 
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v6

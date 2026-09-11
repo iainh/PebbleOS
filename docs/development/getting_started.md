@@ -5,6 +5,20 @@ Follow this guide to:
 - Set up a command-line PebbleOS development environment
 - Get the source code
 
+## Nix development shell
+
+On the Linux and macOS platforms listed in `flake.nix`, Nix provides the SDK,
+Rust 1.89.0, and both embedded Rust targets from the pinned `flake.lock`:
+
+```shell
+nix develop
+pbl configure --board asterix -DCONFIG_CRC32_RUST=y
+pbl build
+```
+
+Nix downloads each pinned input into its store once; subsequent builds use the
+local toolchain. The remaining sections describe the non-Nix setup.
+
 ## PebbleOS SDK
 
 Install the [PebbleOS SDK](https://github.com/coredevices/PebbleOS-SDK), which
@@ -22,6 +36,66 @@ paths of the tools found in it (toolchain, QEMU, sftool, gdb) are cached in
 the build directory, so a build keeps using the SDK it was configured with.
 To use a specific install, pass `-DPEBBLEOS_SDK_ROOT=<dir>` to
 `pbl configure`.
+
+## Rust toolchain
+
+Rust is optional for the default C-only build. To enable a Rust-backed module,
+install `rustup` without using a floating installer:
+
+:::::{tab-set}
+:sync-group: os
+
+::::{tab-item} Ubuntu 24.04 LTS
+:sync: ubuntu
+
+```shell
+sudo apt install rustup
+```
+
+::::
+
+::::{tab-item} Fedora 44
+
+```shell
+sudo dnf install rustup
+rustup-init -y --profile minimal --default-toolchain none
+source "$HOME/.cargo/env"
+```
+
+::::
+
+::::{tab-item} macOS
+
+```shell
+brew install rustup
+export PATH="$(brew --prefix rustup)/bin:$PATH"
+```
+
+::::
+
+:::::
+
+Install the repository's exact compiler and targets once:
+
+```shell
+rustup toolchain install 1.89.0 --profile minimal \
+  --target thumbv7em-none-eabi,thumbv8m.main-none-eabi
+rustc --version
+```
+
+`rust-toolchain.toml` selects that toolchain inside the checkout. Cargo builds
+use the checked-in lock file in frozen/offline mode, so incremental firmware
+builds do not access the network. Enable the Rust CRC-32 implementation with
+`pbl configure --board <board> -DCONFIG_CRC32_RUST=y`.
+
+To build and run its host C-ABI tests:
+
+```shell
+cmake -S tests -B build-test-rust -GNinja \
+  -DPBL_TEST_IMAGES=OFF -DCONFIG_CRC32_RUST=ON
+cmake --build build-test-rust --target test_crc32
+ctest --test-dir build-test-rust -R '^test_crc32$' --output-on-failure
+```
 
 ## System-level dependencies
 
