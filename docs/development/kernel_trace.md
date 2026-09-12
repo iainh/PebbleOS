@@ -62,6 +62,64 @@ start of chronological traversal; skip records whose sequence is zero.
 When `CONFIG_KERNEL_TRACE` is disabled, all functions are inline no-ops and
 the recorder consumes no RAM.
 
+## Export and analysis
+
+With QEMU or a hardware GDB server running, export snapshots using the matching
+build directory. The commands require `arm-none-eabi-gdb` and the repository's
+Python dependencies. Output files must not already exist.
+
+```sh
+pbl trace-capture -b build/trace --target localhost:1234 \
+  --workload "watchface idle" --samples 3 --interval 1 --output idle.json
+pbl trace-report idle.json --output idle.md
+pbl trace-report idle.json --json
+```
+
+Capture briefly halts the target, compares its GNU build ID with the ELF, reads
+the ring and live thread names, then detaches. It does not execute target
+functions or freeze recording. `--interval` is running time between snapshots,
+not a fixed sampling period. Do not run another debugger concurrently. On a GDB
+failure, completed snapshots remain in the JSON file; check whether the target
+needs to be resumed before continuing.
+
+The JSON includes the build ID, board, workload, recording mask, kernel and RTC
+tick frequencies, chronological records, overwrite counts and resolvable static
+object names. Save it with the matching ELF. A saved ELF alone contains no runtime
+trace. Treat captures as diagnostic data: they expose addresses and thread names.
+
+The analyzer merges identical overlapping records, handles counter wrap and
+separates sequence gaps or apparent resets. It reports observed counts,
+wake-to-switch delays, approximate thread residence, mutex contention, queue
+pressure and timer lateness. Wakes without a matching switch are censored rather
+than assigned invented delays. Rates are suppressed when coverage is incomplete.
+Contiguous coverage means the recorded sequence, not all possible event categories
+or the whole workload. Do not combine boots into one capture; thread IDs can be
+reused, and reset detection cannot distinguish every possible counter history.
+
+For scheduling investigations, consider excluding `PBL_TRACE_CAT_IDLE` using
+`pbl_trace_set_mask()` before the workload. Idle-request events can dominate the
+ring. Keep a stable mask throughout a capture and use a separate capture when
+investigating idle behaviour. Capture active input, not just the settled screen.
+
+Limits when choosing optimizations:
+
+- Mutex contention counts do not measure lock wait or hold duration. There are
+  no acquisition/release hooks, so they cannot prove a long critical section.
+- Thread residence includes interrupt execution and is quantized to kernel ticks.
+  Names of threads that exited before sampling may be unavailable.
+- Timer lateness uses RTC ticks, which can differ from kernel ticks. The analyzer
+  omits its seconds conversion when an older capture lacks `timer_tick_hz`.
+  Timer IDs identify allocations within a manager, not stable callback names.
+- GDB pauses and emulator clocks can distort timing. Validate timing and power
+  changes on hardware before drawing conclusions about responsiveness or battery life.
+- No queue-full events in a short capture does not establish queue sizing under load.
+
+Test the exporter and analyzer without a target:
+
+```sh
+PYTHONPATH=tools/libs/pbl-cli python -m unittest discover -s tools/libs/pbl-cli/tests
+```
+
 ## Hook arguments
 
 Hooks call `pbl_trace_record(event, arg0, arg1)`. Argument meanings
