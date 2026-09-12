@@ -134,6 +134,7 @@ endfunction()
 #   LIBS       extra libraries to link
 #   DEPENDS    targets that have to be built first, for a test that needs
 #              a generated header
+#   OPTIONS    extra compiler options; these participate in object sharing
 #   TEST_IMAGES  the test renders against the image fixtures
 function(pbl_clar_test name)
   cmake_parse_arguments(ARG "TEST_IMAGES" "SOURCE"
@@ -184,6 +185,7 @@ function(pbl_clar_test name)
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_LIBS "${ARG_LIBS}")
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_DEPENDS "${ARG_DEPENDS}")
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_IMAGES "${ARG_TEST_IMAGES}")
+    set_property(GLOBAL PROPERTY PBL_TEST_${id}_OPTIONS "${ARG_OPTIONS}")
   endforeach()
 endfunction()
 
@@ -285,7 +287,7 @@ function(_pbl_test_add id)
     set(display ${platform})
   endif()
   set(options -Wno-unused-command-line-argument
-              -include${PBL_BASE}/src/fw/board/displays/display_${display}.h)
+              -include${PBL_BASE}/src/fw/board/displays/display_${display}.h ${OPTIONS})
 
   # Everything that changes the generated code, and nothing that does
   # not: two tests agreeing on all of it share their objects.

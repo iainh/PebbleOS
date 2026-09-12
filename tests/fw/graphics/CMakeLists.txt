@@ -603,6 +603,53 @@ pbl_clar_test(test_bitblt_palette
   TEST_IMAGES
 )
 
+if(CONFIG_BITBLT_RUST)
+  pbl_clar_test(test_bitblt_rust
+    SOURCES
+      src/fw/applib/graphics/gcolor_definitions.c
+      src/fw/applib/graphics/8_bit/bitblt_private.c
+      src/fw/applib/graphics/gbitmap.c
+      src/fw/applib/graphics/gtypes.c
+      src/fw/applib/graphics/graphics.c
+      src/fw/applib/graphics/graphics_bitmap.c
+      src/fw/applib/graphics/gtransform.c
+      src/fw/applib/graphics/bitblt.c
+      src/fw/applib/graphics/8_bit/framebuffer.c
+      src/fw/applib/graphics/framebuffer.c
+      src/fw/applib/graphics/graphics_private.c
+      src/fw/applib/graphics/graphics_private_raw.c
+      src/fw/applib/graphics/graphics_circle.c
+      src/fw/applib/graphics/graphics_line.c
+      src/fw/applib/ui/layer.c
+      tests/fakes/fake_gbitmap_png.c
+      tests/fakes/fake_display.c
+    DEFINES DUMA_DISABLED
+  )
+
+  pbl_clar_test(test_bitblt_benchmark
+    SOURCES
+      src/fw/applib/graphics/gcolor_definitions.c
+      src/fw/applib/graphics/8_bit/bitblt_private.c
+      src/fw/applib/graphics/gbitmap.c
+      src/fw/applib/graphics/gtypes.c
+      src/fw/applib/graphics/graphics.c
+      src/fw/applib/graphics/graphics_bitmap.c
+      src/fw/applib/graphics/gtransform.c
+      src/fw/applib/graphics/bitblt.c
+      src/fw/applib/graphics/8_bit/framebuffer.c
+      src/fw/applib/graphics/framebuffer.c
+      src/fw/applib/graphics/graphics_private.c
+      src/fw/applib/graphics/graphics_private_raw.c
+      src/fw/applib/graphics/graphics_circle.c
+      src/fw/applib/graphics/graphics_line.c
+      src/fw/applib/ui/layer.c
+      tests/fakes/fake_gbitmap_png.c
+      tests/fakes/fake_display.c
+    DEFINES DUMA_DISABLED _POSIX_C_SOURCE=200809L
+    OPTIONS -O3
+  )
+endif()
+
 # Skipped for now; see pbl_test_broken() in tests/CMakeLists.txt.
 pbl_clar_test(test_graphics_draw_line
   SOURCES
