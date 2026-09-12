@@ -42,6 +42,7 @@ Pebble App project.
 
 #include "pbl/services/activity/kraepelin/kraepelin_algorithm.h"
 #include "services/activity/kraepelin/kraepelin_pim.h"
+#include "services/activity/kraepelin/kraepelin_transform.h"
 
 PBL_LOG_MODULE_DECLARE(service_activity, CONFIG_SERVICE_ACTIVITY_LOG_LEVEL);
 
@@ -75,7 +76,7 @@ PBL_LOG_MODULE_DECLARE(service_activity, CONFIG_SERVICE_ACTIVITY_LOG_LEVEL);
 #define KALG_SLEEP_FILTER_WIDTH  (2 * KALG_SLEEP_HALF_WIDTH + 1)
 
 // 2^7 = 128 elements > 125 to allow fft
-#define KALG_FFT_WIDTH  128
+#define KALG_FFT_WIDTH KRAEPELIN_TRANSFORM_WIDTH
 
 // 2^7 = 128 elements > 125 to allow fft
 static const int16_t KALG_FFT_WIDTH_PWR_TWO = 7;
@@ -519,107 +520,6 @@ static uint32_t prv_real_counts_from_raw(uint32_t raw) {
 }
 
 
-// -----------------------------------------------------------------------------------------
-// Real-valued, in-place, 2-radix Fourier transform
-//
-//   This implementation of the fourier transform is taken directly from
-//   Henrik V. Sorensen's 1987 paper "Real-valued Fast Fourier Transform
-//   Algorithms" with slight modifications to allow use of Pebble's cos and
-//   sin lookup functions with input range of 0 to 2*pi angle scaled to
-//   0 to 65536 and output range of -1 to 1 scaled to -65535 to 65536. This
-//   discretization introduces some discrepancies between the results of this
-//   function and the floating point equivalents that are not important for its
-//   use here, but nonetheless documented in the accompanying Julia test code.
-//
-//   INPUT
-//     d = input signal array pointer
-//     width the width of d (must be a power of 2)
-//     width_log_2 the log base 2 of width: 2^width_log_2 = width
-//
-//   OUTPUT
-//     d = fourier transformed array pointer, with array of real coefficients of form
-//       [Re(0), Re(1),..., Re(N/2-1), Re(N/2), Im(N/2-1),..., Im(1)]
-//
-static void prv_fft_2radix_real(int16_t *d, int16_t width, int16_t width_log_2) {
-  int16_t n = width;
-  int16_t j = 1;
-  int16_t n1 = n -1;
-  int16_t k, dt;
-
-  for (int16_t i = 1; i <= n1; i++) {
-    if (i < j) {
-      dt = d[j-1];
-      d[j-1] = d[i-1];
-      d[i-1] = dt;
-    }
-    k = n/2;
-    while (k < j) {
-      j = j - k;
-      k = k / 2;
-    }
-    j = j + k;
-  }
-
-  for (int16_t i = 1; i <= n; i += 2) {
-    dt = d[i-1];
-    d[i-1] = dt + d[i];
-    d[i] = dt - d[i];
-  }
-
-  int16_t n2 = 1;
-  int16_t n4, i1, i2, i3, i4, t1, t2;
-  int32_t E, A, ss, cc;
-
-  for (int16_t k = 2; k <= width_log_2 ; k++) {
-    n4 = n2;
-    n2 = 2 * n4;
-    n1 = 2 * n2;
-    E = TRIG_MAX_ANGLE / n1;
-
-    for (int16_t i = 1; i<= n; i+=n1) {
-      dt = d[i-1];
-      d[i-1] = dt + d[i+n2-1];
-      d[i+n2-1] = dt - d[i+n2-1];
-      d[i+n4+n2-1] = -1 * d[i+n4+n2-1];
-      A = E;
-      for (int16_t j = 1; j <= (n4-1); j++) {
-        i1 = i + j;
-        i2 = i - j + n2;
-        i3 = i + j + n2;
-        i4 = i - j + n1;
-
-        ss = sin_lookup(A);
-        cc = cos_lookup(A);
-
-        A = A + E;
-
-        t1 = (int16_t) ((d[i3-1] * cc + d[i4-1] * ss) / TRIG_MAX_ANGLE);
-        t2 = (int16_t) ((d[i3-1] * ss - d[i4-1] * cc) / TRIG_MAX_ANGLE);
-
-        d[i4-1] = d[i2-1] - t2;
-        d[i3-1] = -d[i2-1] - t2;
-        d[i2-1] = d[i1-1] - t1;
-        d[i1-1] = d[i1-1] + t1;
-      }
-    }
-  }
-}
-
-
-// -----------------------------------------------------------------------------------------
-// Evaluate the magnitude of the FFT coefficients and write back to the first width/2 elements
-// NOTE! this function modifies the input array in place
-static void prv_fft_mag(int16_t *d, int16_t width) {
-  // evaluate the fourier coefficient magnitude
-  // NOTE: coeff @ index 0 and width/2 only have real components
-  //    so their magnitude is exactly that
-  for (int16_t i = 1; i < (width / 2); i++) {
-    // NOTE: eval coeff mag for real and imag : R(i) & I(i)
-    d[i] = prv_isqrt(d[i] * d[i] + d[width - i] * d[width - i]);
-  }
-}
-
-
 #if LOG_DOMAIN_ACTIVITY && KALG_LOG_AXIS_MAGNITUDES
 // -------------------------------------------------------------------------------------------
 // Print a text graph of the values in the d array
@@ -678,49 +578,6 @@ static void prv_log_axis_magnitudes(const char *type_str, int16_t *d, int16_t st
 #if LOG_DOMAIN_ACTIVITY && KALG_LOG_AXIS_MAGNITUDES
   prv_text_graph(type_str, d, start, end);
 #endif
-}
-
-
-// -----------------------------------------------------------------------------------------
-static void prv_get_fftmag_0pad_mean0(int16_t *d, int16_t num_samples, int16_t fft_width,
-                                      int16_t fft_width_log_2, int16_t input_scale) {
-  // reduce input magnitudes before taking FFT
-  for (int16_t i = 0; i < num_samples; i++) {
-    d[i] = d[i] / input_scale;
-  }
-
-  // set the last few elements to the mean of the first elements
-  int16_t mean = prv_mean(d, num_samples, 1);
-  for (int16_t i = 0 ; i < num_samples; i++) {
-    d[i] = d[i] - mean;
-  }
-  for (int16_t i = num_samples ; i < fft_width; i++) {
-    d[i] = 0;
-  }
-
-  // Compute the FFT coefficients
-  prv_fft_2radix_real(d, fft_width, fft_width_log_2);
-
-  // Evaluate the magnitude of the coefficients and write back to the first fft_width/2
-  // elements
-  prv_fft_mag(d, fft_width);
-}
-
-
-// -----------------------------------------------------------------------------------------
-// Apply a cosine filter to the given data array. This is often used before taking an FFT.
-// Taking an FFT of a finite length sequence is mathematically like stacking the sequence end to
-// end and then computing a regular FT. If the sequence end and beginning values are not the same
-// value, this results in a discontinuity where it is stacked, resulting in the introduction of
-// high frequencies in the FFT output. A cosine filter forces the start and end of the sequence to
-// both taper off to 0.
-static void prv_filt_cosine_win_mean0(int16_t *d, int16_t width, int32_t g_factor) {
-  int32_t d_mean = prv_mean(d, width, 1);
-
-  for (uint16_t i = 0; i < width; i++) {
-    d[i] = (int16_t) (((d[i] - d_mean) * g_factor *
-                      sin_lookup((TRIG_MAX_ANGLE * i) / (2 * width))) / (TRIG_MAX_RATIO));
-  }
 }
 
 
@@ -1201,35 +1058,7 @@ static uint32_t prv_analyze_epoch(KAlgState *state) {
     }
   }
 
-  // Calculate the magnitude of the FFT. We will compute the FFT of each axis independently and
-  // then compute the magnitude of that 3-axis FFT afterwards
-  for (int16_t axis = 0; axis < KALG_N_AXES; axis++) {
-    prv_log_axis_magnitudes("accel-before", &state->accel_samples[axis][0], 0,
-                            state->num_samples - 1 /*index of last element*/);
-
-    // Apply a cosine filter to the data before we FFT to reduce the chance of introducing
-    // false high frequency components. See the function comment for prv_filt_cosine_win_mean0()
-    // for more info.
-    prv_filt_cosine_win_mean0(&state->accel_samples[axis][0], state->num_samples, 1);
-
-    prv_log_axis_magnitudes("accel-after", &state->accel_samples[axis][0], 0,
-                            state->num_samples - 1 /*index of last element*/);
-
-    prv_get_fftmag_0pad_mean0(&state->accel_samples[axis][0], state->num_samples, KALG_FFT_WIDTH,
-                              KALG_FFT_WIDTH_PWR_TWO, KALG_FFT_SCALE);
-
-    prv_log_axis_magnitudes("fft-axis", &state->accel_samples[axis][0], 0,
-                            KALG_FFT_WIDTH / 2 - 1 /*index of last element*/);
-  }
-
-  // Get the magnitude of each element now
-  // The first KALG_FFT_WIDTH/2 elements of the FFT output are the magnitudes. The latter half are
-  // the phase
-  for (int16_t i = 0; i < KALG_FFT_WIDTH / 2; i++) {
-    state->work[i] = (int16_t) prv_isqrt(state->accel_samples[0][i] * state->accel_samples[0][i]
-                                         + state->accel_samples[1][i] * state->accel_samples[1][i]
-                                         + state->accel_samples[2][i] * state->accel_samples[2][i]);
-  }
+  kraepelin_transform_epoch(state->accel_samples, state->num_samples, state->work);
 
   // Calculate the step count for this epoch
   uint16_t steps = prv_calc_steps_in_epoch(

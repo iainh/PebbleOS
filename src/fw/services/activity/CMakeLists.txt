@@ -12,6 +12,7 @@ set(sources
   insights_settings.c
   kraepelin/activity_algorithm_kraepelin.c
   kraepelin/kraepelin_algorithm.c
+  kraepelin/kraepelin_transform.c
   workout_service.c
 )
 

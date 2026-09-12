@@ -56,6 +56,7 @@ pbl_clar_test(test_activity_insights
 pbl_clar_test(test_kraepelin_algorithm
   SOURCES
     src/fw/services/activity/kraepelin/kraepelin_algorithm.c
+    src/fw/services/activity/kraepelin/kraepelin_transform.c
     ${kraepelin_pim_sources}
     tests/fakes/fake_rtc.c
     tests/fw/services/activity/step_samples.c
@@ -73,6 +74,14 @@ pbl_clar_test(test_kraepelin_pim
   SOURCES
     ${kraepelin_pim_sources}
   LIBS ${kraepelin_pim_libs}
+)
+
+pbl_clar_test(test_kraepelin_transform
+  SOURCES
+    src/fw/services/activity/kraepelin/kraepelin_transform.c
+    tests/fw/services/activity/kraepelin_reference/fourier.c
+    tests/fw/services/activity/kraepelin_reference/helper_worker.c
+  OVERRIDES dummy_board
 )
 
 pbl_clar_test(test_activity_algorithm_kraepelin
