@@ -5,9 +5,13 @@
 
 #include "kernel.h"
 
-void pbl_mutex_init(struct pbl_mutex *m) { *m = (struct pbl_mutex)PBL_MUTEX_INITIALIZER; }
+void pbl_mutex_init(struct pbl_mutex *m) {
+  *m = (struct pbl_mutex)PBL_MUTEX_INITIALIZER;
+}
 
-void pbl_mutex_deinit(struct pbl_mutex *m) { KERNEL_ASSERT(m->count == 0); }
+void pbl_mutex_deinit(struct pbl_mutex *m) {
+  KERNEL_ASSERT(m->count == 0);
+}
 
 int pbl_mutex_lock_lr(struct pbl_mutex *m, pbl_timeout_t timeout, uintptr_t lr) {
   KERNEL_ASSERT(!arch_in_isr());
@@ -24,7 +28,7 @@ int pbl_mutex_lock_lr(struct pbl_mutex *m, pbl_timeout_t timeout, uintptr_t lr) 
   } else if (pbl_timeout_is_no_wait(timeout)) {
     rc = -EBUSY;
   } else {
-    sched_inherit(m->owner, me->prio);
+    me->backend.waiting_mutex = m;
     // On success the previous owner handed the mutex over to us.
     rc = sched_block(&m->backend.waitq, timeout);
   }
@@ -56,7 +60,9 @@ void pbl_mutex_unlock(struct pbl_mutex *m) {
     } else {
       m->owner = NULL;
     }
-    sched_disinherit(prev);
+    if (next || prev->prio != prev->backend.base_prio) {
+      sched_inheritance_update();
+    }
   }
   pbl_irq_unlock();
 }

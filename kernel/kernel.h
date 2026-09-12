@@ -43,8 +43,7 @@ void waitq_remove(struct pbl_waitq *wq, struct pbl_thread *t);
 struct pbl_thread *waitq_pop(struct pbl_waitq *wq);
 
 //! Priority-inheritance helpers used by the mutex.
-void sched_inherit(struct pbl_thread *owner, pbl_prio_t prio);
-void sched_disinherit(struct pbl_thread *owner);
+void sched_inheritance_update(void);
 
 //! Resets the interrupt lock nesting when the first thread starts.
 void irq_reset(void);

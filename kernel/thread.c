@@ -64,20 +64,25 @@ void pbl_thread_resume(struct pbl_thread *t) {
   pbl_irq_unlock();
 }
 
-struct pbl_thread *pbl_thread_current(void) { return pbl_cur; }
+struct pbl_thread *pbl_thread_current(void) {
+  return pbl_cur;
+}
 
-struct pbl_thread *pbl_thread_idle(void) { return sched_idle_thread(); }
+struct pbl_thread *pbl_thread_idle(void) {
+  return sched_idle_thread();
+}
 
 void pbl_thread_prio_set(struct pbl_thread *t, pbl_prio_t prio) {
   KERNEL_ASSERT(prio <= PBL_PRIO_MAX);
   pbl_irq_lock();
-  // Keep an inherited boost; only the base moves.
-  pbl_prio_t effective = t->prio > t->backend.base_prio ? (prio > t->prio ? prio : t->prio) : prio;
-  sched_prio_set(t, prio, effective);
+  t->backend.base_prio = prio;
+  sched_inheritance_update();
   pbl_irq_unlock();
 }
 
-pbl_prio_t pbl_thread_prio_get(const struct pbl_thread *t) { return t->backend.base_prio; }
+pbl_prio_t pbl_thread_prio_get(const struct pbl_thread *t) {
+  return t->backend.base_prio;
+}
 
 enum pbl_thread_state pbl_thread_state(const struct pbl_thread *t) {
   return (enum pbl_thread_state)t->backend.state;

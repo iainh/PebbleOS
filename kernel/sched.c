@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "pbl/kernel/idle.h"
+#include "pbl/kernel/mutex.h"
 #include "pbl/util/attributes.h"
 
 #include "kernel.h"
@@ -26,7 +27,9 @@ static uint32_t s_next_number;
 static struct pbl_thread s_idle_thread;
 PBL_THREAD_STACK_DEFINE(s_idle_stack, CONFIG_KERNEL_IDLE_STACK_SIZE);
 
-static inline bool prv_before(pbl_tick_t a, pbl_tick_t b) { return (int32_t)(a - b) < 0; }
+static inline bool prv_before(pbl_tick_t a, pbl_tick_t b) {
+  return (int32_t)(a - b) < 0;
+}
 
 // ---- ready lists ------------------------------------------------------------
 
@@ -125,6 +128,10 @@ static void prv_expire_timeouts(void) {
     }
     t->backend.wake_rc = -EAGAIN;
     prv_ready_push(t);
+    if (t->backend.waiting_mutex) {
+      t->backend.waiting_mutex = NULL;
+      sched_inheritance_update();
+    }
   }
 }
 
@@ -184,6 +191,9 @@ int sched_block(struct pbl_waitq *wq, pbl_timeout_t timeout) {
   if (!pbl_timeout_is_forever(timeout)) {
     prv_timeout_add(t, timeout.ticks);
   }
+  if (t->backend.waiting_mutex) {
+    sched_inheritance_update();
+  }
   arch_switch_request();
 
   // Drop the lock so the switch can happen; we come back here once woken.
@@ -197,6 +207,7 @@ void sched_wake(struct pbl_thread *t, int rc) {
   KERNEL_ASSERT(t->backend.state == PBL_THREAD_BLOCKED);
   prv_timeout_remove(t);
   t->backend.waitq = NULL;
+  t->backend.waiting_mutex = NULL;
   t->backend.wake_rc = rc;
   prv_ready_push(t);
   if (t->prio > pbl_cur->prio) {
@@ -228,15 +239,30 @@ void sched_prio_set(struct pbl_thread *t, pbl_prio_t base, pbl_prio_t effective)
   sched_request_switch();
 }
 
-void sched_inherit(struct pbl_thread *owner, pbl_prio_t prio) {
-  if (prio > owner->prio) {
-    sched_prio_set(owner, owner->backend.base_prio, prio);
+void sched_inheritance_update(void) {
+  size_t count = 0;
+  for (struct pbl_thread *t = pbl_all_threads; t; t = t->backend.all_next) {
+    t->backend.donated_prio = t->backend.base_prio;
+    count++;
   }
-}
 
-void sched_disinherit(struct pbl_thread *owner) {
-  if (owner->backend.mutexes_held == 0 && owner->prio != owner->backend.base_prio) {
-    sched_prio_set(owner, owner->backend.base_prio, owner->backend.base_prio);
+  // One edge per blocked thread. At most count passes propagate every base
+  // priority, including cycles, without recursion or retaining stale boosts.
+  for (size_t pass = 0; pass < count; pass++) {
+    bool changed = false;
+    for (struct pbl_thread *t = pbl_all_threads; t; t = t->backend.all_next) {
+      struct pbl_mutex *m = t->backend.waiting_mutex;
+      if (m && m->owner && m->owner->backend.donated_prio < t->backend.donated_prio) {
+        m->owner->backend.donated_prio = t->backend.donated_prio;
+        changed = true;
+      }
+    }
+    if (!changed) {
+      break;
+    }
+  }
+  for (struct pbl_thread *t = pbl_all_threads; t; t = t->backend.all_next) {
+    sched_prio_set(t, t->backend.base_prio, t->backend.donated_prio);
   }
 }
 
@@ -264,6 +290,7 @@ static void prv_detach(struct pbl_thread *t) {
         waitq_remove(t->backend.waitq, t);
         t->backend.waitq = NULL;
       }
+      t->backend.waiting_mutex = NULL;
       break;
     default:
       break;
@@ -280,6 +307,7 @@ void sched_thread_remove(struct pbl_thread *t) {
   if (*link) {
     *link = t->backend.all_next;
   }
+  sched_inheritance_update();
   sched_request_switch();
 }
 
@@ -292,6 +320,7 @@ void sched_thread_suspend(struct pbl_thread *t) {
   prv_detach(t);
   t->backend.state = PBL_THREAD_SUSPENDED;
   t->backend.wake_rc = was_blocked ? KWAKE_INTERRUPTED : 0;
+  sched_inheritance_update();
   sched_request_switch();
 }
 
@@ -345,7 +374,9 @@ void sched_idle_slept(pbl_tick_t elapsed) {
   sched_request_switch();
 }
 
-struct pbl_thread *sched_idle_thread(void) { return &s_idle_thread; }
+struct pbl_thread *sched_idle_thread(void) {
+  return &s_idle_thread;
+}
 
 static void prv_idle_entry(void *arg) {
   (void)arg;
@@ -367,12 +398,12 @@ void sched_start_prepare(void) {
   arch_init();
 
   struct pbl_thread_attr attr = {
-    .name = "IDLE",
-    .entry = prv_idle_entry,
-    .prio = PBL_PRIO_IDLE,
-    .privileged = true,
-    .stack = s_idle_stack,
-    .stack_size = sizeof(s_idle_stack),
+      .name = "IDLE",
+      .entry = prv_idle_entry,
+      .prio = PBL_PRIO_IDLE,
+      .privileged = true,
+      .stack = s_idle_stack,
+      .stack_size = sizeof(s_idle_stack),
   };
   int rc = pbl_thread_create(&s_idle_thread, &attr);
   KERNEL_ASSERT(rc == 0);
@@ -389,9 +420,13 @@ void pbl_kernel_start(void) {
   arch_start();
 }
 
-bool pbl_kernel_is_started(void) { return s_started; }
+bool pbl_kernel_is_started(void) {
+  return s_started;
+}
 
-bool pbl_kernel_is_running(void) { return s_started && s_sched_lock == 0; }
+bool pbl_kernel_is_running(void) {
+  return s_started && s_sched_lock == 0;
+}
 
 void pbl_sched_lock(void) {
   pbl_irq_lock();
@@ -409,9 +444,13 @@ void pbl_sched_unlock(void) {
   pbl_irq_unlock();
 }
 
-bool pbl_sched_is_locked(void) { return s_sched_lock > 0; }
+bool pbl_sched_is_locked(void) {
+  return s_sched_lock > 0;
+}
 
-pbl_tick_t pbl_uptime_ticks(void) { return s_ticks; }
+pbl_tick_t pbl_uptime_ticks(void) {
+  return s_ticks;
+}
 
 void pbl_thread_yield(void) {
   pbl_irq_lock();
@@ -431,7 +470,9 @@ void pbl_thread_sleep(pbl_timeout_t timeout) {
 
 // ---- idle interface ---------------------------------------------------------
 
-bool pbl_idle_confirm(void) { return sched_idle_confirm(); }
+bool pbl_idle_confirm(void) {
+  return sched_idle_confirm();
+}
 
 void pbl_idle_slept(pbl_tick_t elapsed) {
   pbl_irq_lock();

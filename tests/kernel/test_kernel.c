@@ -40,16 +40,16 @@ static void prv_trace(char c) {
   }
 }
 
-static struct pbl_thread *prv_spawn(int i, const char *name, pbl_prio_t prio,
-                                    void (*entry)(void *), void *arg) {
+static struct pbl_thread *prv_spawn(int i, const char *name, pbl_prio_t prio, void (*entry)(void *),
+                                    void *arg) {
   struct pbl_thread_attr attr = {
-    .name = name,
-    .entry = entry,
-    .arg = arg,
-    .prio = prio,
-    .privileged = true,
-    .stack = s_stacks[i],
-    .stack_size = STACK,
+      .name = name,
+      .entry = entry,
+      .arg = arg,
+      .prio = prio,
+      .privileged = true,
+      .stack = s_stacks[i],
+      .stack_size = STACK,
   };
   cl_assert_equal_i(pbl_thread_create(&s_threads[i], &attr), 0);
   return &s_threads[i];
@@ -60,8 +60,7 @@ void test_kernel__initialize(void) {
   memset(s_threads, 0, sizeof(s_threads));
 }
 
-void test_kernel__cleanup(void) {
-}
+void test_kernel__cleanup(void) {}
 
 // ---- scheduling -------------------------------------------------------------
 
@@ -282,6 +281,93 @@ void test_kernel__mutex_timeouts(void) {
   prv_spawn(0, "holder", 2, prv_holder, NULL);
   prv_spawn(1, "locker", 3, prv_timed_locker, NULL);
   pbl_test_kernel_run();
+}
+
+static struct pbl_mutex s_chain_outer, s_chain_inner, s_uncontended;
+static int s_chain_action;
+static int s_chain_result;
+
+static void prv_chain_middle(void *arg) {
+  cl_assert_equal_i(pbl_mutex_lock(&s_chain_outer, PBL_FOREVER), 0);
+  cl_assert_equal_i(pbl_mutex_lock(&s_chain_inner, PBL_FOREVER), 0);
+  pbl_mutex_unlock(&s_chain_inner);
+  pbl_mutex_unlock(&s_chain_outer);
+}
+
+static void prv_chain_high(void *arg) {
+  s_chain_result = pbl_mutex_lock(&s_chain_outer, PBL_TICKS(3));
+  if (s_chain_result == 0) {
+    pbl_mutex_unlock(&s_chain_outer);
+  }
+}
+
+static void prv_chain_low(void *arg) {
+  cl_assert_equal_i(pbl_mutex_lock(&s_chain_inner, PBL_FOREVER), 0);
+  cl_assert_equal_i(pbl_mutex_lock(&s_uncontended, PBL_FOREVER), 0);
+  prv_spawn(1, "middle", 2, prv_chain_middle, NULL);
+  cl_assert_equal_i(s_threads[0].prio, 2);
+  prv_spawn(2, "high", 4, prv_chain_high, NULL);
+  cl_assert_equal_i(s_threads[0].prio, 4);
+  cl_assert_equal_i(s_threads[1].prio, 4);
+
+  // Changing a blocked donor's base must update both owners in either direction.
+  pbl_thread_prio_set(&s_threads[2], 3);
+  cl_assert_equal_i(s_threads[0].prio, 3);
+  cl_assert_equal_i(s_threads[1].prio, 3);
+  pbl_thread_prio_set(&s_threads[2], 4);
+  cl_assert_equal_i(s_threads[0].prio, 4);
+
+  switch (s_chain_action) {
+    case 1:
+      pbl_test_tick(3);
+      cl_assert_equal_i(s_chain_result, -EAGAIN);
+      break;
+    case 2:
+      pbl_thread_suspend(&s_threads[2]);
+      cl_assert_equal_i(s_threads[0].prio, 2);
+      pbl_thread_resume(&s_threads[2]);
+      cl_assert_equal_i(s_chain_result, -EINTR);
+      break;
+    case 3:
+      pbl_thread_abort(&s_threads[2]);
+      break;
+  }
+  if (s_chain_action) {
+    cl_assert_equal_i(s_threads[0].prio, 2);
+    cl_assert_equal_i(s_threads[1].prio, 2);
+  }
+  pbl_mutex_unlock(&s_chain_inner);
+  // The unrelated held mutex must not retain any donation.
+  cl_assert_equal_i(s_threads[0].prio, 1);
+  cl_assert(s_threads[0].backend.waiting_mutex == NULL);
+  pbl_mutex_unlock(&s_uncontended);
+  if (!s_chain_action) {
+    cl_assert_equal_i(s_chain_result, 0);
+  }
+  pbl_test_kernel_stop();
+}
+
+static void prv_test_chain(int action) {
+  s_chain_action = action;
+  s_chain_result = -999;
+  pbl_mutex_init(&s_chain_outer);
+  pbl_mutex_init(&s_chain_inner);
+  pbl_mutex_init(&s_uncontended);
+  prv_spawn(0, "low", 1, prv_chain_low, NULL);
+  pbl_test_kernel_run();
+}
+
+void test_kernel__mutex_transitive_handoff(void) {
+  prv_test_chain(0);
+}
+void test_kernel__mutex_transitive_timeout(void) {
+  prv_test_chain(1);
+}
+void test_kernel__mutex_transitive_suspend(void) {
+  prv_test_chain(2);
+}
+void test_kernel__mutex_transitive_abort(void) {
+  prv_test_chain(3);
 }
 
 // ---- message queues ---------------------------------------------------------

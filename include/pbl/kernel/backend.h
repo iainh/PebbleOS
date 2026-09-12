@@ -11,6 +11,7 @@
 struct pbl_thread;
 struct pbl_msgq;
 struct pbl_poll_group;
+struct pbl_mutex;
 
 //! Threads blocked on an object, highest priority first, FIFO within a priority.
 struct pbl_waitq {
@@ -24,12 +25,14 @@ struct pbl_thread_backend {
   struct pbl_thread *timeout_next;  // timeout list link
   struct pbl_thread *all_next;      // list of every live thread
   struct pbl_waitq *waitq;          // object blocked on, NULL for a plain sleep
+  struct pbl_mutex *waiting_mutex;  // priority-donation dependency
   uint32_t wake_at;
   uint32_t run_time;
   uint32_t switched_in_at;
   uint32_t number;
   uint8_t state;
   uint8_t base_prio;
+  uint8_t donated_prio;  // scratch value while recomputing inheritance
   uint8_t mutexes_held;
   bool on_timeout_list;
   int wake_rc;
@@ -57,5 +60,4 @@ struct pbl_poll_group_backend {
   struct pbl_msgq *cursor;
 };
 
-#define PBL_SEM_BACKEND_INITIALIZER(initial) { .count = (initial) }
-
+#define PBL_SEM_BACKEND_INITIALIZER(initial) {.count = (initial)}
