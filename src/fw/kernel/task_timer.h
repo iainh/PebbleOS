@@ -54,6 +54,13 @@ TaskTimerID task_timer_create(TaskTimerManager *manager);
 bool task_timer_start(TaskTimerManager *manager, TaskTimerID timer, uint32_t timeout_ms,
                       TaskTimerCallback cb, void *cb_data, uint32_t flags);
 
+//! Allow the manager to delay a timer by up to slack_ms to share a wakeup with another timer.
+//! Never schedules early; execution can still be late under load. Repeating timers retain their
+//! nominal cadence. Existing start calls use zero slack. Coalescing is local to this manager.
+bool task_timer_start_with_slack(TaskTimerManager *manager, TaskTimerID timer, uint32_t timeout_ms,
+                                 uint32_t slack_ms, TaskTimerCallback cb, void *cb_data,
+                                 uint32_t flags);
+
 //! Stop a timer. For repeating timers, even if this method returns false (callback is currently
 //! executing) the timer will not run again. Safe to call on timers that aren't currently started.
 //! @param[in] manager The manager that owns the timer
@@ -64,7 +71,7 @@ bool task_timer_stop(TaskTimerManager *manager, TaskTimerID timer);
 //! Get scheduled status of a timer
 //! @param[in] manager The manager that owns the timer
 //! @param[in] timer ID
-//! @param[out] expire_ms_p if not NULL, the number of milliseconds until this timer will fire is
+//! @param[out] expire_ms_p if not NULL, milliseconds until the nominal deadline (excluding slack) is
 //!                         returned in *expire_ms_p. If the timer is not scheduled (return value
 //!                         is false), this value should be ignored.
 //! @return True if timer is scheduled, false if not

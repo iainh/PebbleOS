@@ -53,6 +53,12 @@ bool new_timer_start(TimerID timer_id, uint32_t timeout_ms, NewTimerCallback cb,
   return task_timer_start(&s_task_timer_manager, timer_id, timeout_ms, cb, cb_data, flags);
 }
 
+bool new_timer_start_with_slack(TimerID timer_id, uint32_t timeout_ms, uint32_t slack_ms,
+                                NewTimerCallback cb, void *cb_data, uint32_t flags) {
+  return task_timer_start_with_slack(&s_task_timer_manager, timer_id, timeout_ms, slack_ms, cb,
+                                     cb_data, flags);
+}
+
 // --------------------------------------------------------------------------------
 // Return scheduled status
 bool new_timer_scheduled(TimerID timer_id, uint32_t *expire_ms_p) {

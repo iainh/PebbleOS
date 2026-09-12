@@ -27,6 +27,8 @@ typedef struct TaskTimer {
 
   RtcTicks period_ticks;
 
+  RtcTicks slack_ticks;
+
   TaskTimerID id;            //<! ID assigned to this timer
 
   //! client provided callback function and argument
@@ -98,6 +100,24 @@ static int prv_timer_expire_compare_func(void* a, void* b) {
   }
 }
 
+static RtcTicks prv_next_wakeup(const TaskTimerManager *manager) {
+  const TaskTimer *timer = (const TaskTimer *)manager->running_timers;
+  if (!timer) {
+    return UINT64_MAX;
+  }
+  RtcTicks wakeup = timer->expire_time;
+  RtcTicks latest = UINT64_MAX;
+  // Only combine deadlines while every member's late-only window overlaps.
+  while (timer && timer->expire_time <= latest) {
+    wakeup = timer->expire_time;
+    RtcTicks end = timer->expire_time + timer->slack_ticks;
+    if (end >= timer->expire_time && end < latest) {
+      latest = end;
+    }
+    timer = (const TaskTimer *)timer->list_node.next;
+  }
+  return wakeup;
+}
 
 // ------------------------------------------------------------------------------------
 // Find timer by id
@@ -146,9 +166,11 @@ TaskTimerID task_timer_create(TaskTimerManager *manager) {
 
 // --------------------------------------------------------------------------------
 // Schedule a timer to run.
-bool task_timer_start(TaskTimerManager *manager, TaskTimerID timer_id,
-                      uint32_t timeout_ms, TaskTimerCallback cb, void *cb_data, uint32_t flags) {
+bool task_timer_start_with_slack(TaskTimerManager *manager, TaskTimerID timer_id,
+                                 uint32_t timeout_ms, uint32_t slack_ms, TaskTimerCallback cb,
+                                 void *cb_data, uint32_t flags) {
   pbl_tick_t timeout_ticks = pbl_ms_to_ticks(timeout_ms);
+  pbl_tick_t slack_ticks = pbl_ms_to_ticks(slack_ms);
   RtcTicks current_time = rtc_get_ticks();
 
   // Grab lock on timer structures
@@ -171,6 +193,7 @@ bool task_timer_start(TaskTimerManager *manager, TaskTimerID timer_id,
     return false;
   }
 
+  RtcTicks previous_wakeup = prv_next_wakeup(manager);
   // Remove it from its current list
   if (timer->expire_time) {
     PBL_ASSERTN(list_contains(manager->running_timers, &timer->list_node));
@@ -186,19 +209,24 @@ bool task_timer_start(TaskTimerManager *manager, TaskTimerID timer_id,
   timer->expire_time = current_time + timeout_ticks;
   timer->repeating = flags & TIMER_START_FLAG_REPEATING;
   timer->period_ticks = timeout_ticks;
+  timer->slack_ticks = slack_ticks;
 
   // Insert into sorted order in the running list
   manager->running_timers = list_sorted_add(manager->running_timers, &timer->list_node,
                                             prv_timer_expire_compare_func, true);
 
-  // Wake up our service task if this is the new head so that it can recompute its wait timeout
-  if (manager->running_timers == &timer->list_node) {
+  // A non-head insertion can also move the coalesced wakeup.
+  if (prv_next_wakeup(manager) != previous_wakeup) {
     pbl_sem_give(manager->semaphore);
   }
   pbl_mutex_unlock(&manager->mutex);
   return true;
 }
 
+bool task_timer_start(TaskTimerManager *manager, TaskTimerID timer_id, uint32_t timeout_ms,
+                      TaskTimerCallback cb, void *cb_data, uint32_t flags) {
+  return task_timer_start_with_slack(manager, timer_id, timeout_ms, 0, cb, cb_data, flags);
+}
 
 // --------------------------------------------------------------------------------
 // Return scheduled status
@@ -231,6 +259,7 @@ bool task_timer_scheduled(TaskTimerManager *manager, TaskTimerID timer_id, uint3
 // Stop a timer. If the timer callback is currently executing, return false, else return true.
 bool task_timer_stop(TaskTimerManager *manager, TaskTimerID timer_id) {
   pbl_mutex_lock(&manager->mutex, PBL_FOREVER);
+  RtcTicks previous_wakeup = prv_next_wakeup(manager);
 
   // Find this timer in our list
   TaskTimer* timer = prv_find_timer(manager, timer_id);
@@ -241,6 +270,9 @@ bool task_timer_stop(TaskTimerManager *manager, TaskTimerID timer_id) {
     PBL_ASSERTN(list_contains(manager->running_timers, &timer->list_node));
     list_remove(&timer->list_node, &manager->running_timers /* &head */, NULL /* &tail */);
     manager->idle_timers = list_insert_before(manager->idle_timers, &timer->list_node);
+    if (prv_next_wakeup(manager) != previous_wakeup) {
+      pbl_sem_give(manager->semaphore);
+    }
   }
 
   // Clear the repeating flag so that if they call this method from a callback it won't get
@@ -252,11 +284,11 @@ bool task_timer_stop(TaskTimerManager *manager, TaskTimerID timer_id) {
   return (!timer->executing);
 }
 
-
 // --------------------------------------------------------------------------------
 // Delete a timer
 void task_timer_delete(TaskTimerManager *manager, TaskTimerID timer_id) {
   pbl_mutex_lock(&manager->mutex, PBL_FOREVER);
+  RtcTicks previous_wakeup = prv_next_wakeup(manager);
 
   // Find this timer in our list
   TaskTimer* timer = prv_find_timer(manager, timer_id);
@@ -273,6 +305,9 @@ void task_timer_delete(TaskTimerManager *manager, TaskTimerID timer_id) {
     PBL_ASSERTN(list_contains(manager->running_timers, &timer->list_node));
     list_remove(&timer->list_node, &manager->running_timers /* &head */, NULL /* &tail */);
     manager->idle_timers = list_insert_before(manager->idle_timers, &timer->list_node);
+    if (prv_next_wakeup(manager) != previous_wakeup) {
+      pbl_sem_give(manager->semaphore);
+    }
   }
   timer->repeating = false; // In case it's currently executing, make sure we don't reschedule it
 
@@ -288,7 +323,6 @@ void task_timer_delete(TaskTimerManager *manager, TaskTimerID timer_id) {
     prv_timer_free(timer);
   }
 }
-
 
 void task_timer_manager_init(TaskTimerManager *manager, struct pbl_sem *semaphore) {
   prv_pool_init();
@@ -315,12 +349,13 @@ pbl_tick_t task_timer_manager_execute_expired_timers(TaskTimerManager *manager) 
     // If no timer is ready yet, then ticks_to_wait will be > 0.
     pbl_mutex_lock(&manager->mutex, PBL_FOREVER);
 
-    TaskTimer *next_timer = (TaskTimer*) manager->running_timers;
+    TaskTimer *next_timer = (TaskTimer *)manager->running_timers;
     if (next_timer != NULL) {
       next_expiry_time = next_timer->expire_time;
       RtcTicks current_time = rtc_get_ticks();
+      RtcTicks wakeup = prv_next_wakeup(manager);
 
-      if (next_expiry_time <= current_time) {
+      if (wakeup <= current_time) {
         // Found a timer that has expired! Move it from the running list to the idle talk and
         // mark it as executing.
         manager->running_timers = list_pop_head(manager->running_timers);
@@ -339,8 +374,7 @@ pbl_tick_t task_timer_manager_execute_expired_timers(TaskTimerManager *manager) 
                   next_timer->cb);
         }
       } else {
-        // The next timer hasn't expired yet. Update
-        ticks_to_wait = next_expiry_time - current_time;
+        ticks_to_wait = wakeup - current_time;
       }
     } else {
       // No timers running

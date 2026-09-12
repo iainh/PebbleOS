@@ -12,3 +12,11 @@ pbl_clar_test(test_remote_input
     src/fw/kernel/remote_input.c
   DEFINES CONFIG_SERVICE_TOUCH
 )
+
+pbl_clar_test(test_task_timer
+  SOURCES
+    src/fw/kernel/task_timer.c
+    kernel/tick.c
+    tests/fakes/fake_rtc.c
+  DEFINES CONFIG_TASK_TIMER_POOL_SIZE=16
+)

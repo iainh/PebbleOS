@@ -51,8 +51,13 @@ TimerID new_timer_create(void);
 //! @param[in] flags one or more TIMER_START_FLAG_.* flags
 //! @return True if successful, false if timer was not rescheduled. Note that it will never return
 //!     false if none of the FAIL_IF_* flags are set.
-bool new_timer_start(TimerID timer, uint32_t timeout_ms, NewTimerCallback cb, void *cb_data, 
+bool new_timer_start(TimerID timer, uint32_t timeout_ms, NewTimerCallback cb, void *cb_data,
                      uint32_t flags);
+
+//! Schedule a timer with a late-only coalescing window. Existing new_timer_start() timers remain
+//! strict. Repeating timers retain their nominal cadence.
+bool new_timer_start_with_slack(TimerID timer, uint32_t timeout_ms, uint32_t slack_ms,
+                                NewTimerCallback cb, void *cb_data, uint32_t flags);
 
 //! Stop a timer. For repeating timers, even if this method returns false (callback is currently
 //! executing) the timer will not run again. Safe to call on timers that aren't currently started.
@@ -62,7 +67,7 @@ bool new_timer_stop(TimerID timer);
 
 //! Get scheduled status of a timer
 //! @param[in] timer ID
-//! @param[out] expire_ms_p if not NULL, the number of milliseconds until this timer will fire is returned in
+//! @param[out] expire_ms_p if not NULL, milliseconds until the nominal deadline (excluding slack) is returned in
 //!              *expire_ms_p. If the timer is not scheduled (return value is false), this value should be ignored.
 //! @return True if timer is scheduled, false if not
 bool new_timer_scheduled(TimerID timer, uint32_t *expire_ms_p);
