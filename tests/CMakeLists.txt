@@ -266,6 +266,15 @@ if(CONFIG_GLYPH_RASTER_RUST)
   set(glyph_raster_defines CONFIG_GLYPH_RASTER_RUST)
 endif()
 
+if(CONFIG_ROTATED_BITMAP_RUST)
+  include(rust)
+  pbl_rust_object(pebble_rotated_bitmap
+    ${PBL_BASE}/src/fw/applib/graphics/rotated-bitmap-rust rust_object)
+  add_library(test_rotated_bitmap_rust STATIC ${rust_object})
+  set_target_properties(test_rotated_bitmap_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(test_rotated_bitmap_rust pebble_rotated_bitmap_rust_build)
+endif()
+
 # Every directory that declares tests.
 file(GLOB_RECURSE pbl_test_dirs CONFIGURE_DEPENDS
      RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} */CMakeLists.txt)

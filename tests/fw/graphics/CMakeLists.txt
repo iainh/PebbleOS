@@ -646,3 +646,32 @@ pbl_clar_test(test_graphics_draw_rotated_bitmap
   PLATFORMS obelix gabbro
   TEST_IMAGES
 )
+
+if(CONFIG_ROTATED_BITMAP_RUST)
+  pbl_clar_test(test_graphics_rotated_bitmap_differential
+    SOURCES
+      src/fw/applib/graphics/gtypes.c
+      src/fw/applib/graphics/gbitmap.c
+      tests/fakes/fake_gbitmap_png.c
+      tests/fakes/fake_gbitmap_get_data_row.c
+      src/fw/applib/graphics/gcolor_definitions.c
+      src/fw/applib/graphics/@BITDEPTH@_bit/framebuffer.c
+      src/fw/applib/graphics/framebuffer.c
+      src/fw/applib/ui/layer.c
+      src/fw/applib/graphics/@BITDEPTH@_bit/bitblt_private.c
+      src/fw/applib/graphics/bitblt.c
+      src/fw/applib/graphics/graphics_private.c
+      src/fw/applib/graphics/graphics_private_raw.c
+      src/fw/applib/graphics/graphics_bitmap.c
+      src/fw/applib/graphics/graphics_circle.c
+      src/fw/applib/graphics/graphics_line.c
+      src/fw/applib/graphics/graphics.c
+      src/fw/board/displays/display_getafix.c
+      tests/fakes/fake_display.c
+    PLATFORMS asterix obelix gabbro
+    DEFINES CONFIG_ROTATED_BITMAP_RUST=1
+    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}
+    OPTIONS -O3
+    LIBS test_rotated_bitmap_rust
+  )
+endif()

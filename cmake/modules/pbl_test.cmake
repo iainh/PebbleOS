@@ -130,13 +130,14 @@ endfunction()
 #   INCLUDES   extra header directories
 #   OVERRIDES  directories under tests/overrides/ that come first on the
 #              header search path
+#   OPTIONS    additional compiler options for this test's sources
 #   LIBS       extra libraries to link
 #   DEPENDS    targets that have to be built first, for a test that needs
 #              a generated header
 #   TEST_IMAGES  the test renders against the image fixtures
 function(pbl_clar_test name)
   cmake_parse_arguments(ARG "TEST_IMAGES" "SOURCE"
-    "SOURCES;PLATFORMS;DEFINES;INCLUDES;OVERRIDES;LIBS;DEPENDS" ${ARGN})
+    "SOURCES;PLATFORMS;DEFINES;INCLUDES;OVERRIDES;OPTIONS;LIBS;DEPENDS" ${ARGN})
   if(ARG_UNPARSED_ARGUMENTS)
     message(FATAL_ERROR "pbl_clar_test(${name}): unknown arguments ${ARG_UNPARSED_ARGUMENTS}")
   endif()
@@ -223,7 +224,7 @@ function(pbl_test_finalize)
 endfunction()
 
 function(_pbl_test_add id)
-  foreach(field NAME PLATFORM DIR BINDIR SOURCE SOURCES DEFINES INCLUDES OVERRIDES LIBS DEPENDS IMAGES)
+  foreach(field NAME PLATFORM DIR BINDIR SOURCE SOURCES DEFINES INCLUDES OVERRIDES OPTIONS LIBS DEPENDS IMAGES)
     get_property(${field} GLOBAL PROPERTY PBL_TEST_${id}_${field})
   endforeach()
 
@@ -288,7 +289,7 @@ function(_pbl_test_add id)
 
   # Everything that changes the generated code, and nothing that does
   # not: two tests agreeing on all of it share their objects.
-  set(flags ${PBL_TEST_C_FLAGS} ${options})
+  set(flags ${PBL_TEST_C_FLAGS} ${options} ${OPTIONS})
   foreach(define ${PBL_TEST_DEFINES} ${defines})
     list(APPEND flags -D${define})
   endforeach()
@@ -328,7 +329,7 @@ function(_pbl_test_add id)
     RUNTIME_OUTPUT_DIRECTORY ${test_dir})
   # clar.h lands next to the generated main.
   target_include_directories(${id} PRIVATE ${head} ${test_dir} ${rest})
-  target_compile_options(${id} PRIVATE ${options})
+  target_compile_options(${id} PRIVATE ${options} ${OPTIONS})
   target_compile_definitions(${id} PRIVATE ${defines})
   # DUMA catches memory corruption; a handful of tests trip over it. It
   # has to come before any system library: it overrides malloc, and once
