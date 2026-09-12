@@ -88,7 +88,7 @@ static void prv_switch(void) {
   prv_run(next);
   if (prev->backend.state == PBL_THREAD_DEAD) {
     prv_add_zombie(prev->backend.arch.tid);
-    pthread_mutex_unlock(&s_cpu);
+    // prv_thread_main's cleanup handler releases s_cpu exactly once.
     pthread_exit(NULL);
   }
   prev->backend.arch.run = false;
@@ -101,7 +101,6 @@ void arch_switch_request(void) { s_switch_pending = true; }
 
 void arch_thread_exit(void) {
   // pbl_thread_abort() already switched away and ended this pthread.
-  pthread_mutex_unlock(&s_cpu);
   pthread_exit(NULL);
 }
 
