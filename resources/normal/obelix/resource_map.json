@@ -380,77 +380,77 @@
       "name": "GOTHIC_09",
       "file": "normal/obelix/fonts/noto/NotoSans-Regular.ttf",
       "characterRegex": "[ -ÿ…]",
-      "pixelHeight": 9,
+      "pixelHeight": 7,
       "antialias": true
     },
     {
       "name": "GOTHIC_14",
       "file": "normal/obelix/fonts/noto/NotoSans-Regular.ttf",
       "characterRegex": "[ -ÿ…]",
-      "pixelHeight": 14,
+      "pixelHeight": 11,
       "antialias": true
     },
     {
       "name": "GOTHIC_14_BOLD",
       "file": "normal/obelix/fonts/noto/NotoSans-Bold.ttf",
       "characterRegex": "[ -ÿ…]",
-      "pixelHeight": 14,
+      "pixelHeight": 11,
       "antialias": true
     },
     {
       "name": "GOTHIC_18",
       "file": "normal/obelix/fonts/noto/NotoSans-Regular.ttf",
       "characterRegex": "[ -ÿ…]",
-      "pixelHeight": 18,
+      "pixelHeight": 14,
       "antialias": true
     },
     {
       "name": "GOTHIC_18_BOLD",
       "file": "normal/obelix/fonts/noto/NotoSans-Bold.ttf",
       "characterRegex": "[ -ÿ…]",
-      "pixelHeight": 18,
+      "pixelHeight": 14,
       "antialias": true
     },
     {
       "name": "GOTHIC_24",
       "file": "normal/obelix/fonts/noto/NotoSans-Regular.ttf",
       "characterRegex": "[ -ÿ…]",
-      "pixelHeight": 24,
+      "pixelHeight": 18,
       "antialias": true
     },
     {
       "name": "GOTHIC_24_BOLD",
       "file": "normal/obelix/fonts/noto/NotoSans-Bold.ttf",
       "characterRegex": "[ -ÿ…]",
-      "pixelHeight": 24,
+      "pixelHeight": 18,
       "antialias": true
     },
     {
       "name": "GOTHIC_28",
       "file": "normal/obelix/fonts/noto/NotoSans-Regular.ttf",
       "characterRegex": "[ -ÿ…]",
-      "pixelHeight": 28,
+      "pixelHeight": 21,
       "antialias": true
     },
     {
       "name": "GOTHIC_28_BOLD",
       "file": "normal/obelix/fonts/noto/NotoSans-Bold.ttf",
       "characterRegex": "[ -ÿ…]",
-      "pixelHeight": 28,
+      "pixelHeight": 21,
       "antialias": true
     },
     {
       "name": "GOTHIC_36",
       "file": "normal/obelix/fonts/noto/NotoSans-Regular.ttf",
       "characterRegex": "[ -ÿ…]",
-      "pixelHeight": 36,
+      "pixelHeight": 27,
       "antialias": true
     },
     {
       "name": "GOTHIC_36_BOLD",
       "file": "normal/obelix/fonts/noto/NotoSans-Bold.ttf",
       "characterRegex": "[ -ÿ…]",
-      "pixelHeight": 36,
+      "pixelHeight": 27,
       "antialias": true
     },
     {
