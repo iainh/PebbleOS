@@ -84,6 +84,8 @@ pbl_clar_test(test_text_render
     src/fw/applib/graphics/text_render.c
     src/fw/applib/fonts/codepoint.c
     tests/fakes/fake_gbitmap_png.c
+  DEFINES ${glyph_raster_defines}
+  LIBS ${glyph_raster_libs}
   OVERRIDES dummy_board
 )
 

@@ -109,6 +109,8 @@ pbl_clar_test(test_graphics_draw_text_${BIT_DEPTH_NAME}
   SOURCE ${CMAKE_CURRENT_BINARY_DIR}/test_graphics_draw_text_${BIT_DEPTH_NAME}.c
   SOURCES ${graphics_draw_text_sources}
   PLATFORMS obelix
+  DEFINES ${glyph_raster_defines}
+  LIBS ${glyph_raster_libs}
   OVERRIDES dummy_board
   INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}
   TEST_IMAGES
@@ -186,6 +188,8 @@ pbl_clar_test(test_graphics_draw_text_flow
     src/fw/applib/graphics/graphics_line.c
     src/fw/board/displays/display_getafix.c
   PLATFORMS gabbro
+  DEFINES ${glyph_raster_defines}
+  LIBS ${glyph_raster_libs}
   OVERRIDES dummy_board
   TEST_IMAGES
 )

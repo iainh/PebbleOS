@@ -7,6 +7,11 @@
 #   cmake --build build-test
 #   ctest --test-dir build-test --output-on-failure
 #
+# Optimized glyph benchmark (repeat with CONFIG_GLYPH_RASTER_RUST=ON):
+#   cmake -B build-bench -S tests -GNinja -DGLYPH_RASTER_BENCHMARK=ON
+#   cmake --build build-bench --target test_text_render
+#   build-bench/fw/applib/test_text_render/runme
+#
 # These build for the host, not the watch, so they are their own project
 # with their own build directory; the firmware build is the one rooted at
 # the repository's top-level CMakeLists.txt.
@@ -31,11 +36,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(pebbleos-tests LANGUAGES C)
 
+option(GLYPH_RASTER_BENCHMARK "Build the optimized host glyph benchmark" OFF)
+
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
 
 include(extensions)
 include(pbl_test)
+
+if(GLYPH_RASTER_BENCHMARK)
+  list(REMOVE_ITEM PBL_TEST_C_FLAGS -O0)
+  list(APPEND PBL_TEST_C_FLAGS -O3)
+endif()
 
 option(PBL_TEST_IMAGES "Build the image fixtures the graphics tests render against" ON)
 option(PBL_TEST_COVERAGE "Instrument the tests for gcov/lcov coverage" OFF)
@@ -243,6 +255,17 @@ if(CONFIG_BITBLT_PALETTE_RUST)
   add_dependencies(test_bitblt_palette_rust pebble_bitblt_palette_rust_build)
 endif()
 
+if(CONFIG_GLYPH_RASTER_RUST)
+  include(rust)
+  pbl_rust_object(pebble_glyph_raster
+    ${PBL_BASE}/src/fw/applib/graphics/glyph-raster-rust rust_object)
+  add_library(test_glyph_raster_rust STATIC ${rust_object})
+  set_target_properties(test_glyph_raster_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(test_glyph_raster_rust pebble_glyph_raster_rust_build)
+  set(glyph_raster_libs test_glyph_raster_rust)
+  set(glyph_raster_defines CONFIG_GLYPH_RASTER_RUST)
+endif()
+
 # Every directory that declares tests.
 file(GLOB_RECURSE pbl_test_dirs CONFIGURE_DEPENDS
      RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} */CMakeLists.txt)
@@ -281,3 +304,7 @@ if(CONFIG_BITBLT_PALETTE_RUST)
 endif()
 
 pbl_test_finalize()
+
+if(GLYPH_RASTER_BENCHMARK)
+  target_compile_definitions(test_text_render PRIVATE GLYPH_RASTER_BENCHMARK)
+endif()
