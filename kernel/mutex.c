@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "pbl/kernel/mutex.h"
+#include "pbl/kernel/trace.h"
 
 #include "kernel.h"
 
@@ -28,6 +29,7 @@ int pbl_mutex_lock_lr(struct pbl_mutex *m, pbl_timeout_t timeout, uintptr_t lr) 
   } else if (pbl_timeout_is_no_wait(timeout)) {
     rc = -EBUSY;
   } else {
+    pbl_trace_record(PBL_TRACE_MUTEX_CONTENTION, (uintptr_t)m, m->owner->id);
     me->backend.waiting_mutex = m;
     // On success the previous owner handed the mutex over to us.
     rc = sched_block(&m->backend.waitq, timeout);

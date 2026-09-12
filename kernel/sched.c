@@ -5,6 +5,7 @@
 
 #include "pbl/kernel/idle.h"
 #include "pbl/kernel/mutex.h"
+#include "pbl/kernel/trace.h"
 #include "pbl/util/attributes.h"
 
 #include "kernel.h"
@@ -128,6 +129,7 @@ static void prv_expire_timeouts(void) {
     }
     t->backend.wake_rc = -EAGAIN;
     prv_ready_push(t);
+    pbl_trace_record(PBL_TRACE_SCHED_WAKE, t->id, (uintptr_t)-EAGAIN);
     if (t->backend.waiting_mutex) {
       t->backend.waiting_mutex = NULL;
       sched_inheritance_update();
@@ -185,6 +187,7 @@ int sched_block(struct pbl_waitq *wq, pbl_timeout_t timeout) {
   t->backend.state = PBL_THREAD_BLOCKED;
   t->backend.waitq = wq;
   t->backend.wake_rc = 0;
+  pbl_trace_record(PBL_TRACE_SCHED_BLOCK, t->id, timeout.ticks);
   if (wq) {
     waitq_insert(wq, t);
   }
@@ -210,6 +213,7 @@ void sched_wake(struct pbl_thread *t, int rc) {
   t->backend.waiting_mutex = NULL;
   t->backend.wake_rc = rc;
   prv_ready_push(t);
+  pbl_trace_record(PBL_TRACE_SCHED_WAKE, t->id, (uintptr_t)rc);
   if (t->prio > pbl_cur->prio) {
     sched_request_switch();
   }
@@ -222,6 +226,7 @@ void sched_prio_set(struct pbl_thread *t, pbl_prio_t base, pbl_prio_t effective)
   if (effective == t->prio) {
     return;
   }
+  pbl_trace_record(PBL_TRACE_SCHED_PRIORITY, t->id, (t->prio << 8) | effective);
   if (t->backend.state == PBL_THREAD_READY || t->backend.state == PBL_THREAD_RUNNING) {
     prv_ready_remove(t);
     t->prio = effective;
@@ -343,6 +348,8 @@ USED struct pbl_thread *sched_switch_in(void) {
   struct pbl_thread *prev = pbl_cur;
   struct pbl_thread *next = prv_pick();
   if (prev != next) {
+    // PendSV masks interrupts directly, outside pbl_irq_lock's nesting.
+    pbl_trace_record_locked(PBL_TRACE_SCHED_SWITCH, prev->id, next->id);
     prev->backend.run_time += s_ticks - prev->backend.switched_in_at;
     if (prev->backend.state == PBL_THREAD_RUNNING) {
       prev->backend.state = PBL_THREAD_READY;
@@ -370,6 +377,7 @@ bool sched_idle_confirm(void) {
 
 void sched_idle_slept(pbl_tick_t elapsed) {
   s_ticks += elapsed;
+  pbl_trace_record(PBL_TRACE_IDLE_ELAPSED, elapsed, 0);
   prv_expire_timeouts();
   sched_request_switch();
 }
@@ -387,6 +395,7 @@ static void prv_idle_entry(void *arg) {
       sched_yield_current();
     }
     pbl_tick_t idle_ticks = prv_ticks_until_next_timeout();
+    pbl_trace_record(PBL_TRACE_IDLE_REQUEST, idle_ticks, 0);
     pbl_irq_unlock();
     arch_idle(idle_ticks);
   }

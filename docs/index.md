@@ -92,6 +92,7 @@ development/build_system.md
 development/testing.md
 development/qemu.md
 development/debugging.md
+development/kernel_trace.md
 development/moddable.md
 development/sdk_export.md
 development/contributing.md

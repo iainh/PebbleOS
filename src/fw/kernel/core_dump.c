@@ -54,6 +54,7 @@ extern char *itoa(int value, char *str, int base);
 #endif
 
 #include "pbl/kernel/debug.h"
+#include "pbl/kernel/trace.h"
 
 #include <cmsis_core.h>
 
@@ -480,6 +481,7 @@ static uint32_t prv_write_image_header(uint32_t flash_addr, uint8_t core_number,
 // -----------------------------------------------------------------------------------------------
 // Trigger a core dump
 NORETURN core_dump_reset(bool is_forced) {
+  pbl_trace_freeze();
   // Big problem if we re-enter here - it likely means we encountered an
   // exception during the core dump
   if (s_core_dump_initiated) {

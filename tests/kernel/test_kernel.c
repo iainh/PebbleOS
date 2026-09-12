@@ -4,6 +4,7 @@
 #include "clar.h"
 
 #include "pbl/kernel/kernel.h"
+#include "pbl/kernel/trace.h"
 #include "pbl/os/assert.h"
 
 #include "kernel_test.h"
@@ -58,6 +59,8 @@ static struct pbl_thread *prv_spawn(int i, const char *name, pbl_prio_t prio, vo
 void test_kernel__initialize(void) {
   s_trace[0] = '\0';
   memset(s_threads, 0, sizeof(s_threads));
+  pbl_trace_reset();
+  pbl_trace_start();
 }
 
 void test_kernel__cleanup(void) {}
@@ -241,6 +244,21 @@ void test_kernel__mutex_priority_inheritance(void) {
   // low takes the lock; high blocks and boosts low over medium; low hands
   // the mutex to high, then medium outranks the deboosted low
   cl_assert_equal_s(s_trace, "lhLHMd");
+#if defined(CONFIG_KERNEL_TRACE) && CONFIG_KERNEL_TRACE
+  struct pbl_trace_record records[128];
+  size_t count = pbl_trace_snapshot(records, 128, NULL);
+  bool contention = false, boost = false, unboost = false, switched = false;
+  for (size_t i = 0; i < count; i++) {
+    contention |= records[i].event == PBL_TRACE_MUTEX_CONTENTION &&
+                  records[i].arg0 == (uintptr_t)&s_mutex && records[i].arg1 == s_threads[0].id;
+    if (records[i].event == PBL_TRACE_SCHED_PRIORITY && records[i].arg0 == s_threads[0].id) {
+      boost |= records[i].arg1 == ((1 << 8) | 4);
+      unboost |= records[i].arg1 == ((4 << 8) | 1);
+    }
+    switched |= records[i].event == PBL_TRACE_SCHED_SWITCH;
+  }
+  cl_assert(contention && boost && unboost && switched);
+#endif
 }
 
 static void prv_recursive(void *arg) {

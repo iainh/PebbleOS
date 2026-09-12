@@ -44,4 +44,18 @@ config KERNEL_MUTEX_LOCK_LR
 	bool "Record the caller of the outermost mutex lock"
 	default y
 
+config KERNEL_TRACE
+	bool "Kernel flight recorder"
+	default n
+	help
+	  Record selected kernel events in a fixed-size in-memory ring buffer.
+
+config KERNEL_TRACE_RECORDS
+	int "Kernel flight recorder capacity"
+	default 128
+	range 1 4096
+	depends on KERNEL_TRACE
+	help
+	  Number of records retained. The capacity need not be a power of two.
+
 endmenu

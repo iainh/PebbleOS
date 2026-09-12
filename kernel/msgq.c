@@ -5,6 +5,7 @@
 
 #include "pbl/kernel/msgq.h"
 #include "pbl/kernel/poll.h"
+#include "pbl/kernel/trace.h"
 
 #include "kernel.h"
 
@@ -37,6 +38,7 @@ static int prv_put(struct pbl_msgq *q, const void *msg, pbl_timeout_t timeout, b
   int rc = 0;
   pbl_irq_lock();
   while (q->backend.count == q->max_msgs) {
+    pbl_trace_record(PBL_TRACE_QUEUE_FULL, (uintptr_t)q, q->max_msgs);
     if (pbl_timeout_is_no_wait(timeout) || arch_in_isr()) {
       rc = -EBUSY;
       goto out;

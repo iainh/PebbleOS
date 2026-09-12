@@ -4,6 +4,7 @@
 #include "pbl/kernel/irq.h"
 #include "pbl/kernel/sched.h"
 #include "pbl/kernel/thread.h"
+#include "pbl/kernel/trace.h"
 #include "kernel/core_dump.h"
 #include "logging/logging_private.h"
 #include "process_management/process_manager.h"
@@ -117,6 +118,7 @@ static void convert_to_process_offset(bool known, uintptr_t* pc, PebbleTask task
 static CrashInfo s_current_app_crash_info;
 
 static void setup_log_app_crash_info(CrashInfo crash_info) {
+  pbl_trace_freeze();
   // Write the information out into a global variable so it can be logged out at a less critical time.
   s_current_app_crash_info = crash_info;
 
@@ -135,6 +137,7 @@ static void setup_log_app_crash_info(CrashInfo crash_info) {
 }
 
 static NORETURN kernel_fault(RebootReasonCode reason_code, uint32_t lr) {
+  pbl_trace_freeze();
   RebootReason reason = { .code = reason_code, .extra = { .value = lr } };
   reboot_reason_set(&reason);
   if (reason_code == RebootReasonCode_Assert) {
@@ -278,6 +281,7 @@ static void prv_return_to_landing_zone(uintptr_t stacked_pc, uintptr_t stacked_l
 }
 
 static void attempt_handle_stack_overflow(unsigned int* stacked_args, uintptr_t fault_pc) {
+  pbl_trace_freeze();
   PebbleTask task = pebble_task_get_current();
   PBL_LOG_SYNC_ERR("Stack overflow [task: %s]", pebble_task_get_name(task));
 
@@ -467,4 +471,3 @@ void UsageFault_Handler(void) {
         "mov r1, lr\n"
         "b %0\n" :: "i" (usagefault_handler_c));
 }
-

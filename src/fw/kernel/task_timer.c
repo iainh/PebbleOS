@@ -8,6 +8,7 @@
 #include "kernel/pebble_tasks.h"
 #include "pbl/kernel/mutex.h"
 #include "pbl/kernel/types.h"
+#include "pbl/kernel/trace.h"
 #include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/list.h"
@@ -356,6 +357,11 @@ pbl_tick_t task_timer_manager_execute_expired_timers(TaskTimerManager *manager) 
       RtcTicks wakeup = prv_next_wakeup(manager);
 
       if (wakeup <= current_time) {
+        if (current_time - next_expiry_time > next_timer->slack_ticks) {
+          pbl_trace_record(PBL_TRACE_TIMER_LATENESS,
+                           current_time - next_expiry_time - next_timer->slack_ticks,
+                           next_timer->id);
+        }
         // Found a timer that has expired! Move it from the running list to the idle talk and
         // mark it as executing.
         manager->running_timers = list_pop_head(manager->running_timers);
