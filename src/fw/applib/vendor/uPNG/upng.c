@@ -190,6 +190,12 @@ static void inflate_uncompressed(upng_t* upng, uint8_t* out, uint32_t outsize,
 /*inflate the deflated data (cfr. deflate spec); return value is the error*/
 static upng_error uz_inflate_data(upng_t* upng, uint8_t* out, uint32_t outsize,
     const uint8_t *in, uint32_t insize, uint32_t inpos) {
+  if (inpos > insize) {
+    SET_ERROR(upng, UPNG_EMALFORMED);
+    return upng->error;
+  }
+  const uint32_t deflate_size = insize - inpos;
+
   /*bit pointer in the "in" data, current byte is bp >> 3,
    * current bit is bp & 0x7 (from lsb to msb of the byte) */
   uint32_t bp = 0;
@@ -201,7 +207,7 @@ static upng_error uz_inflate_data(upng_t* upng, uint8_t* out, uint32_t outsize,
     uint16_t btype;
 
     /* ensure next bit doesn't point past the end of the buffer */
-    if ((bp >> 3) >= insize) {
+    if ((bp >> 3) >= deflate_size) {
       SET_ERROR(upng, UPNG_EMALFORMED);
       return upng->error;
     }
@@ -215,10 +221,12 @@ static upng_error uz_inflate_data(upng_t* upng, uint8_t* out, uint32_t outsize,
       SET_ERROR(upng, UPNG_EMALFORMED);
       return upng->error;
     } else if (btype == 0) {
-      inflate_uncompressed(upng, out, outsize, &in[inpos], &bp, &pos, insize); /*no compression */
+      inflate_uncompressed(upng, out, outsize, &in[inpos], &bp, &pos,
+                           deflate_size); /*no compression */
     } else {
       /*compression, btype 01 or 10 */
-      int tinflate_status = tinflate_uncompress(out, (unsigned int *)&outsize, &in[inpos], insize);
+      int tinflate_status =
+          tinflate_uncompress(out, (unsigned int *)&outsize, &in[inpos], deflate_size);
       if (tinflate_status < 0) {
         SET_ERROR(upng, UPNG_EMALFORMED);
         return upng->error;

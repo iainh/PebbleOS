@@ -346,7 +346,7 @@ pbl_clar_test(test_pdc
 pbl_clar_test(test_png
   SOURCES
     src/fw/applib/vendor/uPNG/upng.c
-    src/fw/applib/vendor/tinflate/tinflate.c
+    ${tinflate_sources}
     src/fw/applib/graphics/gbitmap.c
     src/fw/applib/graphics/gbitmap_png.c
     src/fw/applib/graphics/gcolor_definitions.c
@@ -360,13 +360,20 @@ pbl_clar_test(test_png
     src/fw/applib/graphics/graphics_circle.c
     src/fw/applib/graphics/graphics_line.c
     src/fw/applib/graphics/gtypes.c
+  LIBS ${tinflate_libs}
   TEST_IMAGES
+)
+
+pbl_clar_test(test_tinflate
+  SOURCES ${tinflate_sources}
+  LIBS ${tinflate_libs}
+  DEFINES ${tinflate_defines}
 )
 
 pbl_clar_test(test_gbitmap_sequence
   SOURCES
     src/fw/applib/vendor/uPNG/upng.c
-    src/fw/applib/vendor/tinflate/tinflate.c
+    ${tinflate_sources}
     src/fw/applib/graphics/gbitmap.c
     src/fw/applib/graphics/gbitmap_png.c
     src/fw/applib/graphics/gbitmap_sequence.c
@@ -382,6 +389,7 @@ pbl_clar_test(test_gbitmap_sequence
     src/fw/applib/graphics/gtypes.c
     src/fw/board/displays/display_getafix.c
     tests/fakes/fake_resource_syscalls.c
+  LIBS ${tinflate_libs}
   PLATFORMS gabbro
   TEST_IMAGES
 )

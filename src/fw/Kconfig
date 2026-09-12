@@ -28,6 +28,11 @@ config KRAEPELIN_PIM_RUST
     help
       Replace the C Kraepelin PIM filter with the optimized Rust implementation.
 
+config TINFLATE_RUST
+    bool "Rust raw-DEFLATE decoder"
+    help
+      Replace tinflate with the bounded, buffered Rust implementation.
+
 config SETTINGS_ICONS
     bool "Settings menu icons"
     help

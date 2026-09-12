@@ -216,6 +216,20 @@ else()
   set(kraepelin_pim_sources src/fw/services/activity/kraepelin/kraepelin_pim.c)
 endif()
 
+if(CONFIG_TINFLATE_RUST)
+  include(rust)
+  pbl_rust_object(pebble_tinflate
+    ${PBL_BASE}/src/fw/applib/vendor/tinflate/tinflate-rust
+    rust_object)
+  add_library(test_tinflate_rust STATIC ${rust_object})
+  set_target_properties(test_tinflate_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(test_tinflate_rust pebble_tinflate_rust_build)
+  set(tinflate_libs test_tinflate_rust)
+  set(tinflate_defines CONFIG_TINFLATE_RUST)
+else()
+  set(tinflate_sources src/fw/applib/vendor/tinflate/tinflate.c)
+endif()
+
 # Every directory that declares tests.
 file(GLOB_RECURSE pbl_test_dirs CONFIGURE_DEPENDS
      RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} */CMakeLists.txt)
@@ -226,5 +240,19 @@ foreach(list_file ${pbl_test_dirs})
     add_subdirectory(${dir})
   endif()
 endforeach()
+
+if(CONFIG_TINFLATE_RUST)
+  get_property(test_ids GLOBAL PROPERTY PBL_TESTS)
+  foreach(test_id ${test_ids})
+    get_property(test_sources GLOBAL PROPERTY PBL_TEST_${test_id}_SOURCES)
+    if("src/fw/applib/vendor/tinflate/tinflate.c" IN_LIST test_sources)
+      list(REMOVE_ITEM test_sources src/fw/applib/vendor/tinflate/tinflate.c)
+      set_property(GLOBAL PROPERTY PBL_TEST_${test_id}_SOURCES "${test_sources}")
+      get_property(test_libs GLOBAL PROPERTY PBL_TEST_${test_id}_LIBS)
+      list(APPEND test_libs test_tinflate_rust)
+      set_property(GLOBAL PROPERTY PBL_TEST_${test_id}_LIBS "${test_libs}")
+    endif()
+  endforeach()
+endif()
 
 pbl_test_finalize()
