@@ -79,7 +79,7 @@ Install the repository's exact compiler and targets once:
 
 ```shell
 rustup toolchain install 1.89.0 --profile minimal \
-  --target thumbv7em-none-eabi,thumbv8m.main-none-eabi
+  --target thumbv7m-none-eabi,thumbv7em-none-eabi,thumbv8m.main-none-eabi
 rustc --version
 ```
 

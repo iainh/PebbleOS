@@ -1,0 +1,14 @@
+{
+  "uuid": "f2bc65f9-39be-4db2-bc39-217c4549edbf",
+  "shortName": "Cooking Timer",
+  "longName": "Cooking Timer",
+  "companyName": "PebbleOS",
+  "versionCode": 1,
+  "versionLabel": "1.0",
+  "watchapp": {
+    "watchface": false
+  },
+  "resources": {
+    "media": []
+  }
+}

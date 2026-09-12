@@ -4,4 +4,4 @@
 [toolchain]
 channel = "1.89.0"
 profile = "minimal"
-targets = ["thumbv7em-none-eabi", "thumbv8m.main-none-eabi"]
+targets = ["thumbv7m-none-eabi", "thumbv7em-none-eabi", "thumbv8m.main-none-eabi"]

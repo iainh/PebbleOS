@@ -46,6 +46,7 @@
           };
           rustToolchain = fenix.packages.${system}.combine [
             (rustHost.withComponents [ "cargo" "rustc" "rustfmt" ])
+            (rustFor "thumbv7m-none-eabi")
             (rustFor "thumbv7em-none-eabi")
             (rustFor "thumbv8m.main-none-eabi")
           ];

@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2026 Core Devices LLC
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "cooking-timer"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib"]
+path = "src/rust/lib.rs"
+
+[profile.release]
+codegen-units = 1
+opt-level = "s"
+panic = "abort"

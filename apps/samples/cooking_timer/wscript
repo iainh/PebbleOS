@@ -1,0 +1,63 @@
+# SPDX-FileCopyrightText: 2026 Core Devices LLC
+# SPDX-License-Identifier: Apache-2.0
+
+import os
+import subprocess
+
+top = '.'
+out = 'build'
+
+
+def options(ctx):
+    ctx.load('pebble_sdk')
+
+
+def configure(ctx):
+    ctx.load('pebble_sdk')
+    ctx.find_program('cargo', var='CARGO', mandatory=True)
+
+
+def _build_rust(task):
+    env = os.environ.copy()
+    env['CARGO_TARGET_DIR'] = task.outputs[0].parent.make_node('cargo').abspath()
+    env['RUSTFLAGS'] = '-C relocation-model=pic'
+    command = [
+        task.env.CARGO[0],
+        'rustc',
+        '--manifest-path',
+        task.inputs[0].abspath(),
+        '--release',
+        '--frozen',
+        '--target',
+        'thumbv7m-none-eabi',
+        '--',
+        '--emit=obj={}'.format(task.outputs[0].abspath()),
+    ]
+    return subprocess.call(command, env=env)
+
+
+def build(ctx):
+    ctx.load('pebble_sdk')
+
+    binaries = []
+    cached_env = ctx.env
+    rust_sources = [ctx.path.find_node('Cargo.toml'), ctx.path.find_node('Cargo.lock')]
+    rust_sources += ctx.path.ant_glob('src/rust/**/*.rs')
+
+    for platform in ctx.env.TARGET_PLATFORMS:
+        ctx.env = ctx.all_envs[platform]
+        ctx.set_group(ctx.env.PLATFORM_NAME)
+
+        rust_object = ctx.path.get_bld().make_node(
+            '{}/cooking_timer.o'.format(ctx.env.BUILD_DIR)
+        )
+        ctx(rule=_build_rust, source=rust_sources, target=rust_object)
+
+        app_elf = '{}/pebble-app.elf'.format(ctx.env.BUILD_DIR)
+        sources = ctx.path.ant_glob('src/c/**/*.c') + [rust_object]
+        ctx.pbl_build(source=sources, target=app_elf, bin_type='app')
+        binaries.append({'platform': platform, 'app_elf': app_elf})
+
+    ctx.env = cached_env
+    ctx.set_group('bundle')
+    ctx.pbl_bundle(binaries=binaries)
