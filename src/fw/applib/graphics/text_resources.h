@@ -114,6 +114,11 @@ typedef struct FontCache {
 const GlyphData *text_resources_get_glyph(FontCache *font_cache, Codepoint codepoint,
                                           FontInfo *font_info, int16_t *baseline_adjust_out);
 
+const GlyphData *text_resources_get_glyph_with_format(FontCache *font_cache, Codepoint codepoint,
+                                                      FontInfo *font_info,
+                                                      int16_t *baseline_adjust_out,
+                                                      bool *is_2bit_out);
+
 int8_t text_resources_get_glyph_horiz_advance(FontCache *font_cache, Codepoint codepoint,
                                               FontInfo *font_info);
 
@@ -129,4 +134,3 @@ int8_t text_resources_get_glyph_horiz_advance(FontCache *font_cache, Codepoint c
 //! @param font_info a pointer to the fontinfo struct to initialize
 bool text_resources_init_font(ResAppNum app_num, uint32_t font_resource,
                               uint32_t extension_resource, FontInfo *font_info);
-

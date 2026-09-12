@@ -15,15 +15,28 @@
 #include "stubs_resources.h"
 #include "stubs_syscalls.h"
 
+#include <string.h>
+
 #ifdef GLYPH_RASTER_BENCHMARK
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/time.h>
 #endif
 
 static GBitmap *s_dest_bitmap;
+static bool s_use_2bit_test_glyph;
+
+typedef struct __attribute__((__packed__)) {
+  GlyphHeaderData header;
+  uint32_t data[1];
+} TestGlyph;
+
+static const TestGlyph s_2bit_test_glyph = {
+    .header = {.width_px = 4, .height_px = 1},
+    // Four pixels with 0%, 33%, 66%, and 100% coverage, least-significant first.
+    .data = {0xe4},
+};
 
 GBitmap *graphics_context_get_bitmap(GContext *ctx) {
   return s_dest_bitmap;
@@ -31,8 +44,18 @@ GBitmap *graphics_context_get_bitmap(GContext *ctx) {
 
 void graphics_context_mark_dirty_rect(GContext *ctx, GRect rect) {}
 
-const GlyphData *text_resources_get_glyph(FontCache *font_cache, const Codepoint codepoint,
-                                          FontInfo *fontinfo, int16_t *baseline_adjust_out) {
+const GlyphData *text_resources_get_glyph_with_format(FontCache *font_cache,
+                                                      const Codepoint codepoint,
+                                                      FontInfo *fontinfo,
+                                                      int16_t *baseline_adjust_out,
+                                                      bool *is_2bit_out) {
+  if (baseline_adjust_out) {
+    *baseline_adjust_out = 0;
+  }
+  *is_2bit_out = s_use_2bit_test_glyph;
+  if (s_use_2bit_test_glyph) {
+    return (const GlyphData *)&s_2bit_test_glyph;
+  }
 #ifdef GLYPH_RASTER_BENCHMARK
   typedef struct __attribute__((__packed__)) {
     GlyphHeaderData header;
@@ -70,6 +93,13 @@ const GlyphData *text_resources_get_glyph(FontCache *font_cache, const Codepoint
 #else
   return NULL;
 #endif
+}
+
+const GlyphData *text_resources_get_glyph(FontCache *font_cache, const Codepoint codepoint,
+                                          FontInfo *fontinfo, int16_t *baseline_adjust_out) {
+  bool is_2bit;
+  return text_resources_get_glyph_with_format(font_cache, codepoint, fontinfo,
+                                              baseline_adjust_out, &is_2bit);
 }
 
 extern int32_t prv_convert_1bit_addr_to_8bit_x(GBitmap *dest_bitmap, uint32_t *block_addr,
@@ -149,6 +179,36 @@ void test_text_render__convert_1bit_to_8bit_180x180(void) {
                     prv_get_8bit_x_from_1bit_x(dest_x));
 
   gbitmap_destroy(bitmap);
+}
+
+static void prv_assert_2bit_render(GCompOp mode, GColor text_color,
+                                  const uint8_t expected[4]) {
+  GContext ctx = {0};
+  s_dest_bitmap = gbitmap_create_blank(GSize(4, 1), GBitmapFormat8Bit);
+  memset(s_dest_bitmap->addr, GColorWhite.argb, 4);
+  ctx.draw_state.clip_box = GRect(0, 0, 4, 1);
+  ctx.draw_state.compositing_mode = mode;
+  ctx.draw_state.text_color = text_color;
+  s_use_2bit_test_glyph = true;
+
+  render_glyph(&ctx, 'A', NULL, GRect(0, 0, 4, 1));
+
+  cl_assert_equal_m(expected, s_dest_bitmap->addr, 4);
+  s_use_2bit_test_glyph = false;
+  gbitmap_destroy(s_dest_bitmap);
+  s_dest_bitmap = NULL;
+}
+
+void test_text_render__2bit_coverage_assign(void) {
+  const uint8_t expected[] = {
+      GColorWhiteARGB8, GColorLightGrayARGB8, GColorDarkGrayARGB8, GColorBlackARGB8};
+  prv_assert_2bit_render(GCompOpAssign, GColorBlack, expected);
+}
+
+void test_text_render__2bit_coverage_set_multiplies_text_alpha(void) {
+  const uint8_t expected[] = {
+      GColorWhiteARGB8, GColorLightGrayARGB8, GColorLightGrayARGB8, GColorDarkGrayARGB8};
+  prv_assert_2bit_render(GCompOpSet, (GColor){.argb = 0x80}, expected);
 }
 
 #ifdef GLYPH_RASTER_BENCHMARK

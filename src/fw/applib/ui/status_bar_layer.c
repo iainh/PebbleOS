@@ -63,13 +63,6 @@ static ALWAYS_INLINE StatusBarTextFormat prv_get_text_format(
         /*flint*/ bold ? FONT_KEY_GOTHIC_14_BOLD : FONT_KEY_GOTHIC_14,
         /*gabbro*/ bold ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_18);
   }
-#if defined(CONFIG_PLATFORM_EMERY) && !defined(CONFIG_RECOVERY_FW)
-  if (platform == PlatformTypeEmery) {
-    font_key = prv_mode_is_clock(mode)
-                   ? (prv_mode_is_large_bold(mode) ? FONT_KEY_COZETTE_26 : FONT_KEY_COZETTE_13)
-                   : FONT_KEY_CHIKAREGO_16;
-  }
-#endif
   return (StatusBarTextFormat) {
     .overflow_mode = GTextOverflowModeTrailingEllipsis,
     .text_alignment = GTextAlignmentCenter,

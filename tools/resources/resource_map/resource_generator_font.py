@@ -33,6 +33,7 @@ class FontResourceGenerator(ResourceGenerator):
         definition.character_regex = definition_dict.get("characterRegex")
         definition.compatibility = definition_dict.get("compatibility")
         definition.compress = definition_dict.get("compress")
+        definition.antialias = bool(definition_dict.get("antialias"))
         definition.extended = bool(definition_dict.get("extended"))
         definition.tracking_adjust = definition_dict.get("trackingAdjust")
         definition.pixel_height = definition_dict.get("pixelHeight")
@@ -106,6 +107,9 @@ class FontResourceGenerator(ResourceGenerator):
 
             if definition.character_list is not None:
                 font.set_codepoint_list(definition.character_list)
+
+            if definition.antialias:
+                font.set_antialias()
 
             if definition.compress:
                 font.set_compression(definition.compress)

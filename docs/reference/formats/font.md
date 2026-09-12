@@ -32,13 +32,14 @@ unrelated runtime struct).
 | `size`               | `uint8_t`  | v3    | size of this header (10), for future extension |
 | `features`           | `uint8_t`  | v3    | see below                                      |
 
-`features` bits (`FEATURE_OFFSET_16` / `FEATURE_RLE4` in
+`features` bits (`FEATURE_OFFSET_16` / `FEATURE_RLE4` / `FEATURE_2BIT` in
 `fonts_private.h`):
 
 - bit 0: glyph-table offsets are `uint16_t` if set, `uint32_t` if clear.
   The generator sets it when the glyph table fits in 64 KiB.
 - bit 1: glyph bitmaps are RLE4-compressed if set, plain bitmaps if clear.
-- bits 2–7: reserved.
+- bit 2: glyph bitmaps contain 2-bit coverage if set, 1-bit masks if clear.
+- bits 3–7: reserved.
 
 ## Hash table
 
@@ -79,9 +80,11 @@ With RLE4 enabled, the `height` byte instead stores the number of RLE
 units (the decoder recovers the height from the decompressed size).
 Version 1 used a different 8-byte header (`GlyphHeaderDataV1`).
 
-Bitmap data is 1 bit per pixel: rows are concatenated unaligned into one
-continuous bit stream, packed LSB-first into 32-bit words and zero-padded
-to a multiple of 4 bytes.
+Bitmap data normally contains 1 bit per pixel. With `FEATURE_2BIT`, each pixel
+instead contains coverage from 0 (transparent) through 3 (opaque). Rows are
+concatenated unaligned into one continuous bit stream, packed LSB-first into
+32-bit words and zero-padded to a multiple of 4 bytes. `FEATURE_2BIT` and
+`FEATURE_RLE4` are mutually exclusive.
 
 RLE4 compression is a stream of 4-bit units, two per byte (low nibble
 first): each unit is `[symbol:1][length:3]`, emitting `length + 1`

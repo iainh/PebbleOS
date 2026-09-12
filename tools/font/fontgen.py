@@ -31,7 +31,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 #   'features' is a bitmap defined as follows:
 #       0: offset table offsets uint32 if 0, uint16 if 1
 #       1: glyphs are bitmapped if 0, RLE4 encoded if 1
-#     2-7: reserved
+#       2: glyphs contain four 2-bit coverage levels if 1, 1-bit masks if 0
+#     3-7: reserved
 #
 #   (uint32_t) hash_table[]
 #       glyph_tables are found in the resource image by converting a codepoint into an offset from
@@ -79,6 +80,7 @@ ELLIPSIS_CODEPOINT = 0x2026
 # Features
 FEATURE_OFFSET_16 = 0x01
 FEATURE_RLE4 = 0x02
+FEATURE_2BIT = 0x04
 
 
 HASH_TABLE_SIZE = 255
@@ -141,12 +143,19 @@ class Font:
             raise RuntimeError(
                 f"Compression being set but version != 3 ({self.version})"
             )
+        if self.features & FEATURE_2BIT:
+            raise RuntimeError("RLE4 does not support 2-bit glyphs")
         if engine == "RLE4":
             self.features |= FEATURE_RLE4
         else:
             raise RuntimeError(
                 f"Unsupported compression engine: '{engine}'. Font {self.ttf_path}"
             )
+
+    def set_antialias(self):
+        if self.features & FEATURE_RLE4:
+            raise RuntimeError("RLE4 does not support 2-bit glyphs")
+        self.features |= FEATURE_2BIT
 
     def set_version(self, version):
         self.version = version
@@ -294,7 +303,7 @@ class Font:
     def glyph_bits(self, codepoint, gindex):
         flags = (
             freetype.FT_LOAD_RENDER
-            if self.legacy
+            if self.legacy or self.features & FEATURE_2BIT
             else freetype.FT_LOAD_RENDER
             | freetype.FT_LOAD_MONOCHROME
             | freetype.FT_LOAD_TARGET_MONO
@@ -321,9 +330,13 @@ class Font:
                     for j in range(bitmap.pitch):
                         row.extend(bits(bitmap.buffer[i * bitmap.pitch + j]))
                     glyph_bitmap.extend(row[: bitmap.width])
-            elif pixel_mode == 2:  # grey font, 255 bits per pixel
-                for val in bitmap.buffer:
-                    glyph_bitmap.extend([1 if val > 127 else 0])
+            elif pixel_mode == 2:  # grayscale font, 256 coverage levels
+                for i in range(bitmap.rows):
+                    row = bitmap.buffer[i * bitmap.pitch : i * bitmap.pitch + bitmap.width]
+                    if self.features & FEATURE_2BIT:
+                        glyph_bitmap.extend((val * 3 + 127) // 255 for val in row)
+                    else:
+                        glyph_bitmap.extend(1 if val > 127 else 0 for val in row)
             else:
                 # freetype-py should never give us a value not in (1,2)
                 raise RuntimeError(
@@ -341,14 +354,16 @@ class Font:
                 # Check that we can in-place decompress. Will raise an exception if not.
                 self.check_decompress_glyph_RLE4(glyph_packed, width, height)
             else:
-                for word in grouper(32, glyph_bitmap, 0):
+                pixels_per_word = 16 if self.features & FEATURE_2BIT else 32
+                bits_per_pixel = 2 if self.features & FEATURE_2BIT else 1
+                for word in grouper(pixels_per_word, glyph_bitmap, 0):
                     w = 0
-                    for index, bit in enumerate(word):
-                        w |= bit << index
+                    for index, value in enumerate(word):
+                        w |= value << (index * bits_per_pixel)
                     glyph_packed.append(struct.pack("<I", w))
 
                 # Confirm that we're smaller than the cache size
-                size = ((width * height) + (8 - 1)) // 8
+                size = ((width * height * bits_per_pixel) + (8 - 1)) // 8
                 if size > self.max_glyph_size:
                     raise RuntimeError(
                         f"Glyph too large! codepoint {codepoint}: {size} > {self.max_glyph_size}. Font {self.ttf_path}"

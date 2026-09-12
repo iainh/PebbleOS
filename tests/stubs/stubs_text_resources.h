@@ -39,3 +39,10 @@ const GlyphData *text_resources_get_glyph(FontCache* font_cache, Codepoint codep
   return NULL;
 }
 
+const GlyphData *text_resources_get_glyph_with_format(FontCache *font_cache, Codepoint codepoint,
+                                                      FontInfo *fontinfo,
+                                                      int16_t *baseline_adjust_out,
+                                                      bool *is_2bit_out) {
+  *is_2bit_out = false;
+  return text_resources_get_glyph(font_cache, codepoint, fontinfo, baseline_adjust_out);
+}

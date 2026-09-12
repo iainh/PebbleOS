@@ -63,8 +63,9 @@ void render_glyph(GContext* const ctx, const uint32_t codepoint, FontInfo* const
   }
 
   int16_t baseline_adjust = 0;
-  const GlyphData* glyph = text_resources_get_glyph(&ctx->font_cache, codepoint, font,
-                                                    &baseline_adjust);
+  bool is_2bit = false;
+  const GlyphData* glyph = text_resources_get_glyph_with_format(&ctx->font_cache, codepoint, font,
+                                                                &baseline_adjust, &is_2bit);
 
   PBL_ASSERTN(glyph);
   // Bitfiddle the metrics data:
@@ -95,6 +96,48 @@ void render_glyph(GContext* const ctx, const uint32_t codepoint, FontInfo* const
   const int left_clip = clipped_glyph_target.origin.x - glyph_target.origin.x;
   const int right_clip = MIN(glyph_target.size.w,
                              MAX(0, glyph_target.size.w - clipped_glyph_target.size.w - left_clip));
+
+#if CONFIG_SCREEN_COLOR_DEPTH_BITS == 8
+  if (is_2bit) {
+    if (clipped_glyph_target.size.h == 0 || clipped_glyph_target.size.w == 0) {
+      return;
+    }
+
+    const int top_clip = clipped_glyph_target.origin.y - glyph_target.origin.y;
+    const int clipped_max_x = grect_get_max_x(&clipped_glyph_target) - 1;
+    const GColor text_color = ctx->draw_state.text_color;
+    const bool blend = ctx->draw_state.compositing_mode == GCompOpSet;
+    const uint8_t *coverage_data = (const uint8_t *)glyph->data;
+
+    for (int row = 0; row < clipped_glyph_target.size.h; ++row) {
+      const int dest_y = clipped_glyph_target.origin.y + row;
+      const GBitmapDataRowInfo data_row = gbitmap_get_data_row_info(dest_bitmap, dest_y);
+      const int row_min_x = MAX(clipped_glyph_target.origin.x, data_row.min_x);
+      const int row_max_x = MIN(clipped_max_x, data_row.max_x);
+      for (int dest_x = row_min_x; dest_x <= row_max_x; ++dest_x) {
+        const uint32_t source_pixel = glyph_metrics.size.w * (top_clip + row) + left_clip +
+                                      (dest_x - clipped_glyph_target.origin.x);
+        const uint8_t coverage =
+            (coverage_data[source_pixel / 4] >> ((source_pixel % 4) * 2)) & 0x3;
+        const uint8_t alpha = blend ? (coverage * text_color.a + 1) / 3 : coverage;
+        if (alpha == 0) {
+          continue;
+        }
+        if (alpha == 3) {
+          data_row.data[dest_x] = text_color.argb | 0xc0;
+        } else {
+          GColor source = text_color;
+          source.a = alpha;
+          data_row.data[dest_x] =
+              gcolor_alpha_blend(source, (GColor) {.argb = data_row.data[dest_x]}).argb;
+        }
+      }
+    }
+
+    graphics_context_mark_dirty_rect(ctx, clipped_glyph_target);
+    return;
+  }
+#endif
 
 #if CONFIG_SCREEN_COLOR_DEPTH_BITS == 8 && defined(CONFIG_GLYPH_RASTER_RUST)
   if (clipped_glyph_target.size.h == 0 || clipped_glyph_target.size.w == 0) {
