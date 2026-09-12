@@ -231,6 +231,19 @@ else()
   set(kraepelin_pim_sources src/fw/services/activity/kraepelin/kraepelin_pim.c)
 endif()
 
+if(CONFIG_KRAEPELIN_TRANSFORM_RUST)
+  include(rust)
+  pbl_rust_object(pebble_kraepelin_transform
+    ${PBL_BASE}/src/fw/services/activity/kraepelin/kraepelin-transform-rust
+    rust_object)
+  add_library(test_kraepelin_transform_rust STATIC ${rust_object})
+  set_target_properties(test_kraepelin_transform_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(test_kraepelin_transform_rust pebble_kraepelin_transform_rust_build)
+  set(kraepelin_transform_libs test_kraepelin_transform_rust)
+else()
+  set(kraepelin_transform_sources src/fw/services/activity/kraepelin/kraepelin_transform.c)
+endif()
+
 if(CONFIG_TINFLATE_RUST)
   include(rust)
   pbl_rust_object(pebble_tinflate

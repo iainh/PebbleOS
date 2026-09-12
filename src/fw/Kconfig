@@ -28,6 +28,11 @@ config KRAEPELIN_PIM_RUST
     help
       Replace the C Kraepelin PIM filter with the optimized Rust implementation.
 
+config KRAEPELIN_TRANSFORM_RUST
+    bool "Rust Kraepelin activity transform"
+    help
+      Replace the C Kraepelin window and FFT pipeline with the optimized Rust implementation.
+
 config TINFLATE_RUST
     bool "Rust raw-DEFLATE decoder"
     help

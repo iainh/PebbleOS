@@ -12,9 +12,22 @@ set(sources
   insights_settings.c
   kraepelin/activity_algorithm_kraepelin.c
   kraepelin/kraepelin_algorithm.c
-  kraepelin/kraepelin_transform.c
   workout_service.c
 )
+
+if(CONFIG_KRAEPELIN_TRANSFORM_RUST)
+  include(rust)
+  pbl_rust_object(pebble_kraepelin_transform
+    ${CMAKE_CURRENT_SOURCE_DIR}/kraepelin/kraepelin-transform-rust
+    rust_object)
+  pbl_library_named(kraepelin_transform_rust)
+  pbl_library_kind(stlib)
+  pbl_library_sources(${rust_object})
+  set_target_properties(kraepelin_transform_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(kraepelin_transform_rust pebble_kraepelin_transform_rust_build)
+else()
+  list(APPEND sources kraepelin/kraepelin_transform.c)
+endif()
 
 if(CONFIG_KRAEPELIN_PIM_RUST)
   include(rust)

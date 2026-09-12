@@ -45,6 +45,30 @@ static void prv_assert_equal(const int16_t *expected, const int16_t *actual, uin
   cl_assert_equal_m(expected, actual, count * sizeof(*actual));
 }
 
+static void prv_reference_epoch(
+    int16_t samples[KRAEPELIN_TRANSFORM_AXES][KRAEPELIN_TRANSFORM_WIDTH], uint16_t num_samples,
+    int16_t magnitudes[KRAEPELIN_TRANSFORM_MAGNITUDES]) {
+  for (uint16_t axis = 0; axis < KRAEPELIN_TRANSFORM_AXES; axis++) {
+    prv_reference_window(samples[axis], num_samples);
+    for (uint16_t i = 0; i < num_samples; i++) {
+      samples[axis][i] /= 2;
+    }
+    const int16_t mean = prv_mean(samples[axis], num_samples);
+    for (uint16_t i = 0; i < num_samples; i++) {
+      samples[axis][i] -= mean;
+    }
+    for (uint16_t i = num_samples; i < KRAEPELIN_TRANSFORM_WIDTH; i++) {
+      samples[axis][i] = 0;
+    }
+    fft_2radix_real(samples[axis], 7);
+    fft_mag(samples[axis], 7);
+  }
+  for (uint16_t i = 0; i < KRAEPELIN_TRANSFORM_MAGNITUDES; i++) {
+    magnitudes[i] = (int16_t)isqrt(samples[0][i] * samples[0][i] + samples[1][i] * samples[1][i] +
+                                   samples[2][i] * samples[2][i]);
+  }
+}
+
 void test_kraepelin_transform__initialize(void) {
   s_random_state = 0x51f15eed;
 }
@@ -84,52 +108,60 @@ void test_kraepelin_transform__window_matches_reference_at_input_extrema(void) {
 }
 
 void test_kraepelin_transform__fft_coefficients_and_magnitudes_match_reference(void) {
-  int16_t expected[KRAEPELIN_TRANSFORM_WIDTH];
-  int16_t actual[KRAEPELIN_TRANSFORM_WIDTH];
-  prv_fill_asymmetric(expected, KRAEPELIN_TRANSFORM_WIDTH);
-  memcpy(actual, expected, sizeof(actual));
+  for (uint16_t signal = 0; signal < 64; signal++) {
+    int16_t expected[KRAEPELIN_TRANSFORM_WIDTH];
+    int16_t actual[KRAEPELIN_TRANSFORM_WIDTH];
+    prv_fill_asymmetric(expected, KRAEPELIN_TRANSFORM_WIDTH);
+    memcpy(actual, expected, sizeof(actual));
 
-  fft_2radix_real(expected, 7);
-  kraepelin_transform_fft(actual);
-  prv_assert_equal(expected, actual, KRAEPELIN_TRANSFORM_WIDTH);
+    fft_2radix_real(expected, 7);
+    kraepelin_transform_fft(actual);
+    prv_assert_equal(expected, actual, KRAEPELIN_TRANSFORM_WIDTH);
 
-  fft_mag(expected, 7);
-  kraepelin_transform_magnitudes(actual);
-  prv_assert_equal(expected, actual, KRAEPELIN_TRANSFORM_MAGNITUDES);
+    fft_mag(expected, 7);
+    kraepelin_transform_magnitudes(actual);
+    prv_assert_equal(expected, actual, KRAEPELIN_TRANSFORM_MAGNITUDES);
+  }
 }
 
 void test_kraepelin_transform__complete_epoch_matches_reference(void) {
+  static const uint16_t s_widths[] = {1, 11, 63, 124, 125};
+
+  for (uint16_t signal = 0; signal < 32; signal++) {
+    int16_t expected[KRAEPELIN_TRANSFORM_AXES][KRAEPELIN_TRANSFORM_WIDTH] = {0};
+    int16_t actual[KRAEPELIN_TRANSFORM_AXES][KRAEPELIN_TRANSFORM_WIDTH] = {0};
+    int16_t expected_magnitudes[KRAEPELIN_TRANSFORM_MAGNITUDES];
+    int16_t actual_magnitudes[KRAEPELIN_TRANSFORM_MAGNITUDES];
+    const uint16_t width = s_widths[signal % (sizeof(s_widths) / sizeof(s_widths[0]))];
+
+    for (uint16_t axis = 0; axis < KRAEPELIN_TRANSFORM_AXES; axis++) {
+      prv_fill_asymmetric(expected[axis], width);
+    }
+    memcpy(actual, expected, sizeof(actual));
+
+    prv_reference_epoch(expected, width, expected_magnitudes);
+    kraepelin_transform_epoch(actual, width, actual_magnitudes);
+
+    prv_assert_equal(&expected[0][0], &actual[0][0],
+                     KRAEPELIN_TRANSFORM_AXES * KRAEPELIN_TRANSFORM_WIDTH);
+    prv_assert_equal(expected_magnitudes, actual_magnitudes, KRAEPELIN_TRANSFORM_MAGNITUDES);
+  }
+}
+
+void test_kraepelin_transform__complete_epoch_matches_reference_at_input_extrema(void) {
   int16_t expected[KRAEPELIN_TRANSFORM_AXES][KRAEPELIN_TRANSFORM_WIDTH] = {0};
   int16_t actual[KRAEPELIN_TRANSFORM_AXES][KRAEPELIN_TRANSFORM_WIDTH] = {0};
   int16_t expected_magnitudes[KRAEPELIN_TRANSFORM_MAGNITUDES];
   int16_t actual_magnitudes[KRAEPELIN_TRANSFORM_MAGNITUDES];
 
   for (uint16_t axis = 0; axis < KRAEPELIN_TRANSFORM_AXES; axis++) {
-    prv_fill_asymmetric(expected[axis], 125);
+    for (uint16_t i = 0; i < 125; i++) {
+      expected[axis][i] = ((axis + i) % 3 == 0) ? INT16_MIN : INT16_MAX;
+    }
   }
   memcpy(actual, expected, sizeof(actual));
 
-  for (uint16_t axis = 0; axis < KRAEPELIN_TRANSFORM_AXES; axis++) {
-    prv_reference_window(expected[axis], 125);
-    for (uint16_t i = 0; i < 125; i++) {
-      expected[axis][i] /= 2;
-    }
-    const int16_t mean = prv_mean(expected[axis], 125);
-    for (uint16_t i = 0; i < 125; i++) {
-      expected[axis][i] -= mean;
-    }
-    expected[axis][125] = 0;
-    expected[axis][126] = 0;
-    expected[axis][127] = 0;
-    fft_2radix_real(expected[axis], 7);
-    fft_mag(expected[axis], 7);
-  }
-  for (uint16_t i = 0; i < KRAEPELIN_TRANSFORM_MAGNITUDES; i++) {
-    expected_magnitudes[i] =
-        (int16_t)isqrt(expected[0][i] * expected[0][i] + expected[1][i] * expected[1][i] +
-                       expected[2][i] * expected[2][i]);
-  }
-
+  prv_reference_epoch(expected, 125, expected_magnitudes);
   kraepelin_transform_epoch(actual, 125, actual_magnitudes);
 
   prv_assert_equal(&expected[0][0], &actual[0][0],
