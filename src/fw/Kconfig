@@ -45,6 +45,11 @@ config GLYPH_RASTER_RUST
     help
       Use the optimized Rust row rasterizer for 1-bit font glyphs.
 
+config ROTATED_BITMAP_RUST
+    bool "Rust rotated bitmap rasterizer"
+    help
+      Replace the rotated bitmap pixel loop with the optimized Rust implementation.
+
 config SETTINGS_ICONS
     bool "Settings menu icons"
     help

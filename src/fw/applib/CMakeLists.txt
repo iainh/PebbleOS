@@ -72,6 +72,18 @@ if(CONFIG_GLYPH_RASTER_RUST)
   add_dependencies(glyph_raster_rust pebble_glyph_raster_rust_build)
 endif()
 
+if(CONFIG_ROTATED_BITMAP_RUST)
+  include(rust)
+  pbl_rust_object(pebble_rotated_bitmap
+    ${CMAKE_CURRENT_SOURCE_DIR}/graphics/rotated-bitmap-rust
+    rust_object)
+  pbl_library_named(rotated_bitmap_rust)
+  pbl_library_kind(stlib)
+  pbl_library_sources(${rust_object})
+  set_target_properties(rotated_bitmap_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(rotated_bitmap_rust pebble_rotated_bitmap_rust_build)
+endif()
+
 # applib_malloc.json describes the size of every applib object handed out
 # to apps; the generator turns it into the allocator's tables.
 set(applib_malloc_h ${CMAKE_CURRENT_BINARY_DIR}/applib_malloc.auto.h)
