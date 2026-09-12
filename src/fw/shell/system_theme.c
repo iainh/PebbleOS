@@ -121,6 +121,48 @@ static const char *prv_get_font_for_size(PreferredContentSize content_size, Text
     PBL_LOG_ERR("Requested a style font that is out of bounds (%d)", font);
     goto fail;
   }
+#if defined(CONFIG_PLATFORM_EMERY) && !defined(CONFIG_RECOVERY_FW)
+  static const char *const headings[NumPreferredContentSizes] = {
+      FONT_KEY_CHIKAREGO_16,
+      FONT_KEY_CHIKAREGO_16,
+      FONT_KEY_CHIKAREGO_16,
+      FONT_KEY_CHIKAREGO_32,
+  };
+  static const char *const body[NumPreferredContentSizes] = {
+      FONT_KEY_PIXELVA_12,
+      FONT_KEY_PIXELVA_12,
+      FONT_KEY_PIXELVA_24,
+      FONT_KEY_PIXELVA_36,
+  };
+  static const char *const captions[NumPreferredContentSizes] = {
+      FONT_KEY_PIXELVA_12,
+      FONT_KEY_PIXELVA_12,
+      FONT_KEY_PIXELVA_12,
+      FONT_KEY_PIXELVA_24,
+  };
+  static const char *const numbers[NumPreferredContentSizes] = {
+      FONT_KEY_COZETTE_26,
+      FONT_KEY_COZETTE_26,
+      FONT_KEY_COZETTE_26,
+      FONT_KEY_COZETTE_39,
+  };
+  switch (font) {
+    case TextStyleFont_Header:
+    case TextStyleFont_Title:
+    case TextStyleFont_ParagraphHeader:
+    case TextStyleFont_TimeHeaderWords:
+    case TextStyleFont_MenuCellTitle:
+      return headings[content_size];
+    case TextStyleFont_TimeHeaderNumbers:
+      return numbers[content_size];
+    case TextStyleFont_Caption:
+    case TextStyleFont_Footer:
+    case TextStyleFont_MenuCellSubtitle:
+      return captions[content_size];
+    default:
+      return body[content_size];
+  }
+#endif
   return s_text_styles[content_size].fonts[font];
 fail:
   PRIVILEGE_WAS_ELEVATED ? syscall_failed() : WTF;

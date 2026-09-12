@@ -9,6 +9,7 @@
 #include "applib/graphics/gtypes.h"
 #include "applib/ui/app_window_stack.h"
 #include "applib/ui/content_indicator.h"
+#include "applib/ui/status_bar_layer.h"
 #include "resource/resource_ids.auto.h"
 #include "system/passert.h"
 #include "shell/prefs.h"
@@ -107,6 +108,12 @@ static void prv_menu_layer_draw_row(GContext* ctx, const Layer *cell_layer, Menu
                                                        ctx, cell_layer_bounds, is_highlighted,
                                                        screen_center_y, node);
 
+#if defined(CONFIG_PLATFORM_EMERY)
+  graphics_context_set_stroke_color(ctx, GColorLightGray);
+  graphics_draw_line(ctx, GPoint(0, cell_layer_bounds->size.h - 1),
+                     GPoint(cell_layer_bounds->size.w - 1, cell_layer_bounds->size.h - 1));
+#endif
+
   // If we should launch an app after this render, push a callback to do that on the app task
   if (launcher_menu_layer->app_to_launch_after_next_render != INSTALL_ID_INVALID) {
     const AppInstallId app_to_launch_install_id =
@@ -186,6 +193,9 @@ void launcher_menu_layer_init(LauncherMenuLayer *launcher_menu_layer,
   launcher_menu_layer->data_source = data_source;
 
   GRect menu_layer_frame = frame;
+#if defined(CONFIG_PLATFORM_EMERY)
+  menu_layer_frame = grect_inset(menu_layer_frame, GEdgeInsets(STATUS_BAR_LAYER_HEIGHT, 0, 0, 0));
+#endif
 #if PBL_ROUND
   const int top_bottom_inset =
       (frame.size.h - LAUNCHER_MENU_LAYER_CELL_ROUND_FOCUSED_CELL_HEIGHT -

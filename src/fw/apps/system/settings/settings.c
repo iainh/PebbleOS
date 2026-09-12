@@ -48,6 +48,9 @@ static const uint32_t SETTINGS_MENU_ICON_RESOURCES[SettingsMenuItem_Count] = {
 typedef struct {
   Window window;
   MenuLayer menu_layer;
+#if defined(CONFIG_PLATFORM_EMERY)
+  StatusBarLayer status_bar;
+#endif
 #ifdef CONFIG_SETTINGS_ICONS
   GBitmap *icons[SettingsMenuItem_Count];
 #endif
@@ -95,6 +98,11 @@ static void prv_draw_row_callback(GContext *ctx, const Layer *cell_layer,
   GBitmap *icon = NULL;
 #endif
   menu_cell_basic_draw(ctx, cell_layer, title, NULL, icon);
+#if defined(CONFIG_PLATFORM_EMERY)
+  graphics_context_set_stroke_color(ctx, GColorLightGray);
+  graphics_draw_line(ctx, GPoint(0, cell_layer->bounds.size.h - 1),
+                     GPoint(cell_layer->bounds.size.w - 1, cell_layer->bounds.size.h - 1));
+#endif
 }
 
 static void prv_select_callback(MenuLayer *menu_layer, MenuIndex *cell_index, void *context) {
@@ -113,6 +121,8 @@ static int16_t prv_get_cell_height_callback(MenuLayer *menu_layer,
       SETTINGS_CATEGORY_MENU_NUM_UNFOCUSED_ROWS_PER_SIDE;
   return menu_layer_is_index_selected(menu_layer, cell_index) ? focused_cell_height :
                                                                 unfocused_cell_height;
+#elif defined(CONFIG_PLATFORM_EMERY)
+  return 50;
 #else
   return menu_cell_basic_cell_height();
 #endif
@@ -140,6 +150,13 @@ static void prv_window_load(Window *window) {
 
   // Create the menu
   GRect bounds = data->window.layer.bounds;
+#if defined(CONFIG_PLATFORM_EMERY)
+  status_bar_layer_init(&data->status_bar);
+  status_bar_layer_set_title(&data->status_bar, i18n_get("Settings", data), false, false);
+  status_bar_layer_set_colors(&data->status_bar, GColorWhite, GColorBlack);
+  layer_add_child(&data->window.layer, status_bar_layer_get_layer(&data->status_bar));
+  bounds = grect_inset(bounds, GEdgeInsets(STATUS_BAR_LAYER_HEIGHT, 0, 0, 0));
+#endif
 #if PBL_ROUND
   bounds = grect_inset_internal(bounds, 0,
                                 SETTINGS_CATEGORY_MENU_CELL_UNFOCUSED_ROUND_VERTICAL_PADDING);
@@ -154,9 +171,13 @@ static void prv_window_load(Window *window) {
     .get_separator_height = prv_get_separator_height_callback
   });
   GColor highlight_bg = shell_prefs_get_theme_highlight_color();
+#if defined(CONFIG_PLATFORM_EMERY)
+  menu_layer_set_normal_colors(menu_layer, GColorWhite, GColorBlack);
+#else
   menu_layer_set_normal_colors(menu_layer,
                                PBL_IF_COLOR_ELSE(GColorBlack, GColorWhite),
                                PBL_IF_COLOR_ELSE(GColorWhite, GColorBlack));
+#endif
   menu_layer_set_highlight_colors(menu_layer,
                                   highlight_bg,
                                   gcolor_legible_over(highlight_bg));
@@ -179,6 +200,10 @@ static void prv_window_unload(Window *window) {
   SettingsAppData *data = window_get_user_data(window);
 
   event_service_client_unsubscribe(&data->pref_change_event_info);
+#if defined(CONFIG_PLATFORM_EMERY)
+  status_bar_layer_deinit(&data->status_bar);
+  i18n_free_all(data);
+#endif
 
 #ifdef CONFIG_SETTINGS_ICONS
   // Free icons

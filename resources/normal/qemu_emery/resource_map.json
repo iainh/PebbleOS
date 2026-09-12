@@ -375,6 +375,60 @@
       "_comment": ["Round-only asset (weather_app_layout.c loads it under PBL_ROUND only):",
                    "override with a 0-byte stub on this rect board. Entry merged BY NAME so",
                    "resource ids (incl. the weather app's pinned 492-514) are unchanged."]
+    },
+    {
+      "type": "font",
+      "name": "CHIKAREGO_16",
+      "file": "normal/obelix/fonts/chikarego-16.bdf",
+      "characterRegex": "[ -ÿ…]"
+    },
+    {
+      "type": "font",
+      "name": "CHIKAREGO_32",
+      "file": "normal/obelix/fonts/chikarego-32.bdf",
+      "characterRegex": "[ -ÿ…]"
+    },
+    {
+      "type": "font",
+      "name": "CHIKAREGO_48",
+      "file": "normal/obelix/fonts/chikarego-48.bdf",
+      "characterRegex": "[ -ÿ…]"
+    },
+    {
+      "type": "font",
+      "name": "PIXELVA_12",
+      "file": "normal/obelix/fonts/pixelva-12.bdf",
+      "characterRegex": "[ -ÿ…]"
+    },
+    {
+      "type": "font",
+      "name": "PIXELVA_24",
+      "file": "normal/obelix/fonts/pixelva-24.bdf",
+      "characterRegex": "[ -ÿ…]"
+    },
+    {
+      "type": "font",
+      "name": "PIXELVA_36",
+      "file": "normal/obelix/fonts/pixelva-36.bdf",
+      "characterRegex": "[ -ÿ…]"
+    },
+    {
+      "type": "font",
+      "name": "COZETTE_13",
+      "file": "normal/obelix/fonts/cozette-13.bdf",
+      "characterRegex": "[ -ÿ…]"
+    },
+    {
+      "type": "font",
+      "name": "COZETTE_26",
+      "file": "normal/obelix/fonts/cozette-26.bdf",
+      "characterRegex": "[ -ÿ…]"
+    },
+    {
+      "type": "font",
+      "name": "COZETTE_39",
+      "file": "normal/obelix/fonts/cozette-39.bdf",
+      "characterRegex": "[ -ÿ…]"
     }
   ]
 }

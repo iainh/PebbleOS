@@ -8,6 +8,7 @@
 #include "applib/app.h"
 #include "applib/app_focus_service.h"
 #include "applib/ui/app_window_stack.h"
+#include "applib/ui/status_bar_layer.h"
 #include "kernel/pbl_malloc.h"
 #include "shell/normal/app_idle_timeout.h"
 #include "shell/prefs.h"
@@ -18,6 +19,9 @@ typedef struct LauncherAppWindowData {
   Window window;
   LauncherMenuLayer launcher_menu_layer;
   AppMenuDataSource app_menu_data_source;
+#if defined(CONFIG_PLATFORM_EMERY)
+  StatusBarLayer status_bar;
+#endif
 } LauncherAppWindowData;
 
 typedef struct LauncherAppPersistedData {
@@ -92,6 +96,12 @@ static void prv_window_load(Window *window) {
   launcher_menu_layer_set_click_config_onto_window(launcher_menu_layer, window);
   layer_add_child(window_root_layer, launcher_menu_layer_get_layer(launcher_menu_layer));
 
+#if defined(CONFIG_PLATFORM_EMERY)
+  status_bar_layer_init(&data->status_bar);
+  status_bar_layer_set_colors(&data->status_bar, GColorWhite, GColorBlack);
+  layer_add_child(window_root_layer, status_bar_layer_get_layer(&data->status_bar));
+#endif
+
   // If we have a saved launcher selection state, restore it
   if (s_launcher_app_persisted_data.valid) {
     launcher_menu_layer_set_selection_state(launcher_menu_layer,
@@ -123,6 +133,9 @@ static void prv_window_unload(Window *window) {
                                           &s_launcher_app_persisted_data.selection_state);
 
   app_focus_service_unsubscribe();
+#if defined(CONFIG_PLATFORM_EMERY)
+  status_bar_layer_deinit(&data->status_bar);
+#endif
   launcher_menu_layer_deinit(&data->launcher_menu_layer);
   app_menu_data_source_deinit(&data->app_menu_data_source);
 }

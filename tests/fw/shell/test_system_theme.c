@@ -5,6 +5,7 @@
 
 #include "applib/platform.h"
 #include "applib/preferred_content_size.h"
+#include "shell/system_theme.h"
 
 // Stubs
 ///////////////
@@ -67,4 +68,37 @@ void test_system_theme__convert_content_size_between_platforms(void) {
                                                                PlatformTypeEmery,
                                                                PlatformTypeChalk),
                     PreferredContentSizeSmall);
+}
+
+void test_system_theme__font_roles_and_sizes(void) {
+#if defined(CONFIG_PLATFORM_EMERY)
+  cl_assert_equal_s(
+      system_theme_get_font_key_for_size(PreferredContentSizeLarge, TextStyleFont_Header),
+      "RESOURCE_ID_CHIKAREGO_16");
+  cl_assert_equal_s(
+      system_theme_get_font_key_for_size(PreferredContentSizeLarge, TextStyleFont_Body),
+      "RESOURCE_ID_PIXELVA_24");
+  cl_assert_equal_s(
+      system_theme_get_font_key_for_size(PreferredContentSizeLarge, TextStyleFont_MenuCellTitle),
+      "RESOURCE_ID_CHIKAREGO_16");
+  cl_assert_equal_s(system_theme_get_font_key_for_size(PreferredContentSizeLarge,
+                                                       TextStyleFont_TimeHeaderNumbers),
+                    "RESOURCE_ID_COZETTE_26");
+  cl_assert_equal_s(
+      system_theme_get_font_key_for_size(PreferredContentSizeSmall, TextStyleFont_Body),
+      "RESOURCE_ID_PIXELVA_12");
+  cl_assert_equal_s(
+      system_theme_get_font_key_for_size(PreferredContentSizeMedium, TextStyleFont_Body),
+      "RESOURCE_ID_PIXELVA_12");
+  cl_assert_equal_s(
+      system_theme_get_font_key_for_size(PreferredContentSizeExtraLarge, TextStyleFont_Body),
+      "RESOURCE_ID_PIXELVA_36");
+#else
+  cl_assert_equal_s(
+      system_theme_get_font_key_for_size(PreferredContentSizeLarge, TextStyleFont_Header),
+      "RESOURCE_ID_GOTHIC_24_BOLD");
+  cl_assert_equal_s(
+      system_theme_get_font_key_for_size(PreferredContentSizeLarge, TextStyleFont_MenuCellTitle),
+      "RESOURCE_ID_GOTHIC_24_BOLD");
+#endif
 }
