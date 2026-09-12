@@ -50,6 +50,17 @@ endif()
 file(GLOB_RECURSE sources CONFIGURE_DEPENDS *.c)
 pbl_filter_sources(sources EXCLUDE ${excl})
 
+if(CONFIG_BITBLT_PALETTE_RUST AND CONFIG_SCREEN_COLOR_DEPTH_BITS EQUAL 1)
+  include(rust)
+  pbl_rust_object(pebble_bitblt_palette
+    ${CMAKE_CURRENT_SOURCE_DIR}/graphics/1_bit/bitblt-palette-rust rust_object)
+  pbl_library_named(bitblt_palette_rust)
+  pbl_library_kind(stlib)
+  pbl_library_sources(${rust_object})
+  set_target_properties(bitblt_palette_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(bitblt_palette_rust pebble_bitblt_palette_rust_build)
+endif()
+
 # applib_malloc.json describes the size of every applib object handed out
 # to apps; the generator turns it into the allocator's tables.
 set(applib_malloc_h ${CMAKE_CURRENT_BINARY_DIR}/applib_malloc.auto.h)

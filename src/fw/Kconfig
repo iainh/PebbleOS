@@ -33,6 +33,12 @@ config TINFLATE_RUST
     help
       Replace tinflate with the bounded, buffered Rust implementation.
 
+config BITBLT_PALETTE_RUST
+    bool "Rust 1-bit palettized tiled blit"
+    help
+      Replace the per-pixel destination updates for 1-bit palettized tiled
+      blits with a Rust implementation that updates each destination word once.
+
 config SETTINGS_ICONS
     bool "Settings menu icons"
     help
