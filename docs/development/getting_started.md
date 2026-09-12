@@ -87,14 +87,16 @@ rustc --version
 use checked-in lock files in frozen/offline mode, so incremental firmware
 builds do not access the network. Rust implementations can be selected with
 `CONFIG_CRC32_RUST`, `CONFIG_BASE64_RUST`, `CONFIG_COBS_RUST`,
-`CONFIG_ANCS_UTIL_RUST`, `CONFIG_KRAEPELIN_PIM_RUST`, and
-`CONFIG_TINFLATE_RUST`, and `CONFIG_BITBLT_RUST`, for example:
+`CONFIG_ANCS_UTIL_RUST`, `CONFIG_KRAEPELIN_PIM_RUST`,
+`CONFIG_KRAEPELIN_TRANSFORM_RUST`, `CONFIG_TINFLATE_RUST`,
+`CONFIG_BITBLT_PALETTE_RUST`, `CONFIG_GLYPH_RASTER_RUST`,
+`CONFIG_ROTATED_BITMAP_RUST`, and `CONFIG_BITBLT_RUST`, for example:
 
 ```shell
 pbl configure --board <board> -DCONFIG_CRC32_RUST=y \
   -DCONFIG_BASE64_RUST=y -DCONFIG_COBS_RUST=y -DCONFIG_ANCS_UTIL_RUST=y \
-  -DCONFIG_KRAEPELIN_PIM_RUST=y -DCONFIG_TINFLATE_RUST=y \
-  -DCONFIG_BITBLT_RUST=y
+  -DCONFIG_KRAEPELIN_PIM_RUST=y -DCONFIG_KRAEPELIN_TRANSFORM_RUST=y \
+  -DCONFIG_TINFLATE_RUST=y -DCONFIG_BITBLT_RUST=y
 ```
 
 To build and run their host C-ABI tests:
@@ -103,12 +105,13 @@ To build and run their host C-ABI tests:
 cmake -S tests -B build-test-rust -GNinja \
   -DPBL_TEST_IMAGES=OFF -DCONFIG_CRC32_RUST=ON \
   -DCONFIG_BASE64_RUST=ON -DCONFIG_COBS_RUST=ON -DCONFIG_ANCS_UTIL_RUST=ON \
-  -DCONFIG_KRAEPELIN_PIM_RUST=ON -DCONFIG_TINFLATE_RUST=ON
+  -DCONFIG_KRAEPELIN_PIM_RUST=ON -DCONFIG_KRAEPELIN_TRANSFORM_RUST=ON \
+  -DCONFIG_TINFLATE_RUST=ON
 cmake --build build-test-rust --target \
   test_crc32 test_base64 test_cobs_decode test_cobs_encode test_ancs_util \
-  test_kraepelin_pim test_kraepelin_algorithm test_tinflate
+  test_kraepelin_pim test_kraepelin_transform test_kraepelin_algorithm test_tinflate
 ctest --test-dir build-test-rust \
-  -R '^(test_crc32|test_base64|test_cobs_(decode|encode)|test_ancs_util|test_kraepelin_(pim|algorithm)|test_tinflate)$' \
+  -R '^(test_crc32|test_base64|test_cobs_(decode|encode)|test_ancs_util|test_kraepelin_(pim|transform|algorithm)|test_tinflate)$' \
   --output-on-failure
 ```
 
