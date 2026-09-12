@@ -52,9 +52,6 @@ PBL_LOG_MODULE_DECLARE(service_activity, CONFIG_SERVICE_ACTIVITY_LOG_LEVEL);
 // Set this to 1 to get text graphs of the overall FFT magnitudes
 #define KALG_LOG_OVERALL_MAGNITUDES 0
 
-// Set this to 1 to get text graphs of magnitudes of each axis
-#define KALG_LOG_AXIS_MAGNITUDES 0
-
 // ---------------------------------------------------------------------------------------------
 // Internal equates
 
@@ -520,7 +517,7 @@ static uint32_t prv_real_counts_from_raw(uint32_t raw) {
 }
 
 
-#if LOG_DOMAIN_ACTIVITY && KALG_LOG_AXIS_MAGNITUDES
+#if LOG_DOMAIN_ACTIVITY && KALG_LOG_OVERALL_MAGNITUDES
 // -------------------------------------------------------------------------------------------
 // Print a text graph of the values in the d array
 static void prv_text_graph(const char *type_str, int16_t *d, int16_t start, int16_t end) {
@@ -567,15 +564,6 @@ static void prv_text_graph(const char *type_str, int16_t *d, int16_t start, int1
 static void prv_log_overall_magnitudes(const char *type_str, int16_t *d, int16_t start,
                                        int16_t end) {
 #if LOG_DOMAIN_ACTIVITY && KALG_LOG_OVERALL_MAGNITUDES
-  prv_text_graph(type_str, d, start, end);
-#endif
-}
-
-
-// -------------------------------------------------------------------------------------------
-// Used to Log magnitudes of a specific axis
-static void prv_log_axis_magnitudes(const char *type_str, int16_t *d, int16_t start, int16_t end) {
-#if LOG_DOMAIN_ACTIVITY && KALG_LOG_AXIS_MAGNITUDES
   prv_text_graph(type_str, d, start, end);
 #endif
 }
