@@ -6,6 +6,7 @@
 #include "applib/graphics/8_bit/framebuffer.h"
 #include "applib/graphics/graphics.h"
 #include "applib/graphics/gtypes.h"
+#include "applib/graphics/text_render.h"
 #include "comm/ble/gap_le_connection.h"
 #include "comm/bt_lock.h"
 #include "console_internal.h"
@@ -15,6 +16,7 @@
 #include <pbl/drivers/task_watchdog.h>
 #include "flash_region/flash_region.h"
 #include "kernel/event_loop.h"
+#include <pbl/kernel/thread.h>
 #include "logging/logging_private.h"
 #include "kernel/pbl_malloc.h"
 #include "kernel/pebble_tasks.h"
@@ -1137,7 +1139,6 @@ void command_ble_logging_get_level(void) {
 #ifdef CONFIG_PERFORMANCE_TESTS
 // for task_watchdog_bit_set_all
 #include <pbl/drivers/task_watchdog.h>
-// For taskYIELD()
 
 // Average this many iterations of the text test for getting useful perf numbers.
 #define PERFTEST_TEXT_ITERATIONS 5
@@ -1438,10 +1439,41 @@ void command_perftest_text(const char *string_type, const char *fontkey, const c
   s_perftest_text_arguments.y_offset = yoffset;
   launcher_task_add_callback(prv_perftest_test_main, NULL);
   while (s_perftest_text_arguments.string_type != NULL) {
-    taskYIELD();
+    pbl_thread_yield();
     watchdog_feed();
     task_watchdog_bit_set_all();
   }
+}
+
+void command_perftest_glyph(const char *fontkey, const char *codepoint_str, const char *mode,
+                            const char *iterations_str) {
+  const unsigned int iterations = atoi(iterations_str);
+  const Codepoint codepoint = strtol(codepoint_str, NULL, 0);
+  if (iterations == 0 || (strcmp(mode, "assign") != 0 && strcmp(mode, "set") != 0)) {
+    prompt_send_response("Usage: perftest glyph FONT CODEPOINT assign|set ITERATIONS");
+    return;
+  }
+
+  watchdog_feed();
+  GContext *ctx = prv_perftest_get_context();
+  FontInfo *font = fonts_get_system_font(fontkey);
+  ctx->draw_state.compositing_mode = strcmp(mode, "set") == 0 ? GCompOpSet : GCompOpAssign;
+  graphics_context_set_text_color(
+      ctx, ctx->draw_state.compositing_mode == GCompOpSet ? (GColor){.argb = 0x55} : GColorBlack);
+
+  // Warm the font cache before measuring rasterization.
+  render_glyph(ctx, codepoint, font, GRect(7, 11, DISP_COLS, DISP_ROWS));
+  profiler_init();
+  profiler_start();
+  for (unsigned int i = 0; i < iterations; ++i) {
+    render_glyph(ctx, codepoint, font, GRect(7, 11, DISP_COLS, DISP_ROWS));
+  }
+  profiler_stop();
+
+  char buf[96];
+  prompt_send_response_fmt(buf, sizeof(buf), "%s, 0x%" PRIx32 ", %s, %u, %" PRIu32 ", %" PRIu32,
+                           fontkey, codepoint, mode, iterations, profiler_get_total_duration(true),
+                           profiler_get_total_duration(false));
 }
 
 void command_perftest_text_all(void) {

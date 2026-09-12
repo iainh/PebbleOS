@@ -274,6 +274,7 @@ extern void command_hrm_read(void);
 
 extern void command_perftest_line(const char *, const char *);
 extern void command_perftest_line_all(void);
+extern void command_perftest_glyph(const char *, const char *, const char *, const char *);
 extern void command_perftest_text(const char *, const char *, const char *);
 extern void command_perftest_text_all(void);
 
@@ -625,6 +626,7 @@ static const Command s_prompt_commands[] = {
 #ifdef CONFIG_PERFORMANCE_TESTS
   { "perftest all line", command_perftest_line_all, 0 },
   { "perftest all text", command_perftest_text_all, 0 },
+  { "perftest glyph", command_perftest_glyph, 4 },
   { "perftest line", command_perftest_line, 2 },
   { "perftest text", command_perftest_text, 3 },
 #endif
