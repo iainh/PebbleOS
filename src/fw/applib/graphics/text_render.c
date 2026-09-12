@@ -4,6 +4,9 @@
 #include "text_render.h"
 
 #include "gcontext.h"
+#if CONFIG_SCREEN_COLOR_DEPTH_BITS == 8 && defined(CONFIG_GLYPH_RASTER_RUST)
+#include "glyph_raster.h"
+#endif
 #include "process_state/app_state/app_state.h"
 #include "system/passert.h"
 #include "text_resources.h"
@@ -92,6 +95,48 @@ void render_glyph(GContext* const ctx, const uint32_t codepoint, FontInfo* const
   const int left_clip = clipped_glyph_target.origin.x - glyph_target.origin.x;
   const int right_clip = MIN(glyph_target.size.w,
                              MAX(0, glyph_target.size.w - clipped_glyph_target.size.w - left_clip));
+
+#if CONFIG_SCREEN_COLOR_DEPTH_BITS == 8 && defined(CONFIG_GLYPH_RASTER_RUST)
+  if (clipped_glyph_target.size.h == 0 || clipped_glyph_target.size.w == 0) {
+    return;
+  }
+
+  const GColor text_color = ctx->draw_state.text_color;
+  const bool blend = ctx->draw_state.compositing_mode == GCompOpSet;
+  const uint8_t *blend_lut_ptr = NULL;
+  uint8_t output_color = text_color.argb | 0xc0;
+
+  if (blend && text_color.a == 0) {
+    graphics_context_mark_dirty_rect(ctx, clipped_glyph_target);
+    return;
+  }
+  if (blend) {
+    output_color = text_color.argb;
+    if (text_color.a != 3) {
+      blend_lut_ptr = g_color_alpha_blend_33_lookup;
+    }
+  }
+
+  const int top_clip = clipped_glyph_target.origin.y - glyph_target.origin.y;
+  const int clipped_max_x = grect_get_max_x(&clipped_glyph_target) - 1;
+  for (int row = 0; row < clipped_glyph_target.size.h; ++row) {
+    const int dest_y = clipped_glyph_target.origin.y + row;
+    const GBitmapDataRowInfo data_row = gbitmap_get_data_row_info(dest_bitmap, dest_y);
+    const int row_min_x = MAX(clipped_glyph_target.origin.x, data_row.min_x);
+    const int row_max_x = MIN(clipped_max_x, data_row.max_x);
+    if (row_min_x > row_max_x) {
+      continue;
+    }
+
+    const uint32_t source_bit_offset = glyph_metrics.size.w * (top_clip + row) + left_clip +
+                                       (row_min_x - clipped_glyph_target.origin.x);
+    glyph_rasterize_8bit_row(glyph->data, source_bit_offset, data_row.data + row_min_x,
+                             row_max_x - row_min_x + 1, output_color, blend_lut_ptr);
+  }
+
+  graphics_context_mark_dirty_rect(ctx, clipped_glyph_target);
+  return;
+#endif
 
 #if CONFIG_SCREEN_COLOR_DEPTH_BITS == 8
   // Set base address to 0 for 8-bit as this will be later translated to the destination bitmap

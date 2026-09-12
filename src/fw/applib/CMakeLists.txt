@@ -61,6 +61,17 @@ if(CONFIG_BITBLT_PALETTE_RUST AND CONFIG_SCREEN_COLOR_DEPTH_BITS EQUAL 1)
   add_dependencies(bitblt_palette_rust pebble_bitblt_palette_rust_build)
 endif()
 
+if(CONFIG_GLYPH_RASTER_RUST)
+  include(rust)
+  pbl_rust_object(pebble_glyph_raster
+    ${CMAKE_CURRENT_SOURCE_DIR}/graphics/glyph-raster-rust rust_object)
+  pbl_library_named(glyph_raster_rust)
+  pbl_library_kind(stlib)
+  pbl_library_sources(${rust_object})
+  set_target_properties(glyph_raster_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(glyph_raster_rust pebble_glyph_raster_rust_build)
+endif()
+
 # applib_malloc.json describes the size of every applib object handed out
 # to apps; the generator turns it into the allocator's tables.
 set(applib_malloc_h ${CMAKE_CURRENT_BINARY_DIR}/applib_malloc.auto.h)

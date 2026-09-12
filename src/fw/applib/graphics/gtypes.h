@@ -103,6 +103,10 @@ bool gcolor_is_invisible(GColor8 color);
 extern const GColor8Component g_color_luminance_lookup[];
 
 //! @internal
+//! Exact 33% blend results, indexed by destination RGB + 64 * source RGB.
+extern const uint8_t g_color_alpha_blend_33_lookup[64 * 64];
+
+//! @internal
 //! Get the luminance of a color
 static inline GColor8Component gcolor_get_luminance(GColor8 color) {
   return g_color_luminance_lookup[color.argb & 0b00111111];

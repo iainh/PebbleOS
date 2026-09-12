@@ -422,7 +422,7 @@ const GColor8Component g_color_luminance_lookup[RGB_LOOKUP_TABLE_SIZE] = {
 // 64 rows for 64 source colors and 64 columns for 64 destination colors
 // Values below were calculated for 33% blending
 // 66% blending can be achieved by transforming the table around diagonal axis
-static const uint8_t s_blending_lookup_33_percent[RGB_LOOKUP_TABLE_SIZE * RGB_LOOKUP_TABLE_SIZE] = {
+const uint8_t g_color_alpha_blend_33_lookup[RGB_LOOKUP_TABLE_SIZE * RGB_LOOKUP_TABLE_SIZE] = {
   0xc0, 0xc1, 0xc1, 0xc2, 0xc4, 0xc5, 0xc5, 0xc6, 0xc4, 0xc5, 0xc5, 0xc6, 0xc8, 0xc9, 0xc9, 0xca,
   0xd0, 0xd1, 0xd1, 0xd2, 0xd4, 0xd5, 0xd5, 0xd6, 0xd4, 0xd5, 0xd5, 0xd6, 0xd8, 0xd9, 0xd9, 0xda,
   0xd0, 0xd1, 0xd1, 0xd2, 0xd4, 0xd5, 0xd5, 0xd6, 0xd4, 0xd5, 0xd5, 0xd6, 0xd8, 0xd9, 0xd9, 0xda,
@@ -692,14 +692,14 @@ GColor8 gcolor_blend(GColor8 src_color, GColor8 dest_color, uint8_t blending_fac
     case 1:
       // Lookup: 33%
       return (GColor8) {
-        .argb = s_blending_lookup_33_percent[(dest_color.argb & MASK_RGB) +
-                                            RGB_LOOKUP_TABLE_SIZE * (src_color.argb & MASK_RGB)],
+        .argb = g_color_alpha_blend_33_lookup[(dest_color.argb & MASK_RGB) +
+                                             RGB_LOOKUP_TABLE_SIZE * (src_color.argb & MASK_RGB)],
       };
     case 2:
       // Lookup: 66% - same as mirrored 33% results
       return (GColor8) {
-        .argb = s_blending_lookup_33_percent[(src_color.argb & MASK_RGB) +
-                                            RGB_LOOKUP_TABLE_SIZE * (dest_color.argb & MASK_RGB)],
+        .argb = g_color_alpha_blend_33_lookup[(src_color.argb & MASK_RGB) +
+                                             RGB_LOOKUP_TABLE_SIZE * (dest_color.argb & MASK_RGB)],
       };
     case 3:
       // Fast path: 100%
