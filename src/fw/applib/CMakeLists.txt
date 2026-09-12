@@ -84,6 +84,17 @@ if(CONFIG_ROTATED_BITMAP_RUST)
   add_dependencies(rotated_bitmap_rust pebble_rotated_bitmap_rust_build)
 endif()
 
+if(CONFIG_BITBLT_RUST)
+  include(rust)
+  pbl_rust_object(pebble_bitblt
+    ${CMAKE_CURRENT_SOURCE_DIR}/graphics/8_bit/bitblt-rust rust_object)
+  pbl_library_named(bitblt_rust)
+  pbl_library_kind(stlib)
+  pbl_library_sources(${rust_object})
+  set_target_properties(bitblt_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(bitblt_rust pebble_bitblt_rust_build)
+endif()
+
 # applib_malloc.json describes the size of every applib object handed out
 # to apps; the generator turns it into the allocator's tables.
 set(applib_malloc_h ${CMAKE_CURRENT_BINARY_DIR}/applib_malloc.auto.h)

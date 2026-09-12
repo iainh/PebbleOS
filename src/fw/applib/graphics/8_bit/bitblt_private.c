@@ -29,12 +29,20 @@ const GColor8Component g_bitblt_private_blending_mask_lookup[LOOKUP_TABLE_SIZE] 
   0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3,
 };
 
-void bitblt_bitmap_into_bitmap_tiled_palette_to_8bit(GBitmap* dest_bitmap,
-                                                     const GBitmap* src_bitmap,
-                                                     GRect dest_rect,
-                                                     GPoint src_origin_offset,
-                                                     GCompOp compositing_mode,
-                                                     GColor8 tint_color) {
+static int16_t prv_wrap_coordinate(int32_t coordinate, int16_t begin, int16_t size) {
+  int32_t offset = (coordinate - begin) % size;
+  if (offset < 0) {
+    offset += size;
+  }
+  return begin + offset;
+}
+
+void bitblt_bitmap_into_bitmap_tiled_palette_to_8bit_c(GBitmap* dest_bitmap,
+                                                       const GBitmap* src_bitmap,
+                                                       GRect dest_rect,
+                                                       GPoint src_origin_offset,
+                                                       GCompOp compositing_mode,
+                                                       GColor8 tint_color) {
   if (!src_bitmap->palette) {
     return;
   }
@@ -50,10 +58,15 @@ void bitblt_bitmap_into_bitmap_tiled_palette_to_8bit(GBitmap* dest_bitmap,
   const int16_t src_begin_y = src_bitmap->bounds.origin.y;
   const int16_t src_end_y = grect_get_max_y(&src_bitmap->bounds);
 
+  if (src_bitmap->bounds.size.w <= 0 || src_bitmap->bounds.size.h <= 0) {
+    return;
+  }
+
   const uint8_t src_bpp = gbitmap_get_bits_per_pixel(gbitmap_get_format(src_bitmap));
   const GColor *palette = src_bitmap->palette;
 
-  int16_t src_y = src_begin_y + src_origin_offset.y;
+  int16_t src_y = prv_wrap_coordinate(src_begin_y + src_origin_offset.y, src_begin_y,
+                                      src_bitmap->bounds.size.h);
   for (int16_t dest_y = dest_begin_y; dest_y < dest_end_y; ++dest_y, ++src_y) {
     // Wrap-around source bitmap vertically
     if (src_y >= src_end_y) {
@@ -77,19 +90,15 @@ void bitblt_bitmap_into_bitmap_tiled_palette_to_8bit(GBitmap* dest_bitmap,
     const int16_t src_end_x = MIN(grect_get_max_x(&src_bitmap->bounds),
                                   src_row_info.max_x + 1);
 
-    int16_t src_x = src_initial_x + src_origin_offset.x;
+    int16_t src_x = prv_wrap_coordinate(src_initial_x + src_origin_offset.x,
+                                        src_bitmap->bounds.origin.x,
+                                        src_bitmap->bounds.size.w);
     for (int16_t dest_x = dest_begin_x; dest_x < dest_end_x; ++dest_x, ++src_x) {
+      if (src_x >= grect_get_max_x(&src_bitmap->bounds)) {
+        src_x = src_bitmap->bounds.origin.x;
+      }
       if (!WITHIN(src_x, src_begin_x, src_end_x - 1)) {
-        // Check if content should wrap (under and over) for tiling
-        if (!WITHIN(src_x, src_bitmap->bounds.origin.x,
-                    grect_get_max_x(&src_bitmap->bounds) - 1)) {
-          // keep correct bounds alignment for circular when tiling
-          src_x = src_bitmap->bounds.origin.x +
-            ((src_x - src_bitmap->bounds.origin.x) % src_bitmap->bounds.size.w);
-        } else {
-          // Increment source but don't draw
-          continue;
-        }
+        continue;
       }
 
       // src points to the info for the row, so y and stride are 0 for raw_image_get_value
@@ -124,17 +133,21 @@ void bitblt_bitmap_into_bitmap_tiled_palette_to_8bit(GBitmap* dest_bitmap,
   }
 }
 
-void bitblt_bitmap_into_bitmap_tiled_8bit_to_8bit(GBitmap *dest_bitmap,
-                                                  const GBitmap *src_bitmap,
-                                                  GRect dest_rect,
-                                                  GPoint src_origin_offset,
-                                                  GCompOp compositing_mode,
-                                                  GColor8 tint_color) {
+void bitblt_bitmap_into_bitmap_tiled_8bit_to_8bit_c(GBitmap *dest_bitmap,
+                                                    const GBitmap *src_bitmap,
+                                                    GRect dest_rect,
+                                                    GPoint src_origin_offset,
+                                                    GCompOp compositing_mode,
+                                                    GColor8 tint_color) {
   const int16_t dest_begin_y = dest_rect.origin.y;
   const int16_t dest_end_y = grect_get_max_y(&dest_rect);
   const int16_t src_begin_y = src_bitmap->bounds.origin.y;
   const int16_t src_end_y = grect_get_max_y(&src_bitmap->bounds);
-  int16_t src_y = src_begin_y + src_origin_offset.y;
+  if (src_bitmap->bounds.size.w <= 0 || src_bitmap->bounds.size.h <= 0) {
+    return;
+  }
+  int16_t src_y = prv_wrap_coordinate(src_begin_y + src_origin_offset.y, src_begin_y,
+                                      src_bitmap->bounds.size.h);
 
   // Default all compositing modes to GCompAssign except for GCompOpSet
   // and GCompOpOr.
@@ -167,19 +180,15 @@ void bitblt_bitmap_into_bitmap_tiled_8bit_to_8bit(GBitmap *dest_bitmap,
         const int16_t src_end_x = MIN(grect_get_max_x(&src_bitmap->bounds),
                                       src_row_info.max_x + 1);
 
-        int16_t src_x = src_initial_x + src_origin_offset.x;
+        int16_t src_x = prv_wrap_coordinate(src_initial_x + src_origin_offset.x,
+                                            src_bitmap->bounds.origin.x,
+                                            src_bitmap->bounds.size.w);
         for (int16_t dest_x = dest_begin_x; dest_x < dest_end_x; ++dest_x, ++src_x) {
+          if (src_x >= grect_get_max_x(&src_bitmap->bounds)) {
+            src_x = src_bitmap->bounds.origin.x;
+          }
           if (!WITHIN(src_x, src_begin_x, src_end_x - 1)) {
-            // Check if content should wrap (under and over) for tiling
-            if (!WITHIN(src_x, src_bitmap->bounds.origin.x,
-                        grect_get_max_x(&src_bitmap->bounds) - 1)) {
-              // keep correct bounds alignment for circular when tiling
-              src_x = src_bitmap->bounds.origin.x +
-                ((src_x - src_bitmap->bounds.origin.x) % src_bitmap->bounds.size.w);
-            } else {
-              // Increment source but don't draw
-              continue;
-            }
+            continue;
           }
           dest[dest_x] = src[src_x];
         }
@@ -219,19 +228,15 @@ void bitblt_bitmap_into_bitmap_tiled_8bit_to_8bit(GBitmap *dest_bitmap,
         const int16_t src_end_x = MIN(grect_get_max_x(&src_bitmap->bounds),
                                       src_row_info.max_x + 1);
 
-        int16_t src_x = src_initial_x + src_origin_offset.x;
+        int16_t src_x = prv_wrap_coordinate(src_initial_x + src_origin_offset.x,
+                                            src_bitmap->bounds.origin.x,
+                                            src_bitmap->bounds.size.w);
         for (int16_t dest_x = dest_begin_x; dest_x < dest_end_x; ++dest_x, ++src_x) {
+          if (src_x >= grect_get_max_x(&src_bitmap->bounds)) {
+            src_x = src_bitmap->bounds.origin.x;
+          }
           if (!WITHIN(src_x, src_begin_x, src_end_x - 1)) {
-            // Check if content should wrap (under and over) for tiling
-            if (!WITHIN(src_x, src_bitmap->bounds.origin.x,
-                        grect_get_max_x(&src_bitmap->bounds) - 1)) {
-              // keep correct bounds alignment for circular when tiling
-              src_x = src_bitmap->bounds.origin.x +
-                (((src_x - src_bitmap->bounds.origin.x)) % src_bitmap->bounds.size.w);
-            } else {
-              // Increment source but don't draw
-              continue;
-            }
+            continue;
           }
           GColor src_color = *(GColor8 *) &src[src_x];
 
@@ -250,6 +255,28 @@ void bitblt_bitmap_into_bitmap_tiled_8bit_to_8bit(GBitmap *dest_bitmap,
     }
   }
 }
+
+#if !CONFIG_BITBLT_RUST
+void bitblt_bitmap_into_bitmap_tiled_palette_to_8bit(GBitmap* dest_bitmap,
+                                                     const GBitmap* src_bitmap,
+                                                     GRect dest_rect,
+                                                     GPoint src_origin_offset,
+                                                     GCompOp compositing_mode,
+                                                     GColor8 tint_color) {
+  bitblt_bitmap_into_bitmap_tiled_palette_to_8bit_c(
+      dest_bitmap, src_bitmap, dest_rect, src_origin_offset, compositing_mode, tint_color);
+}
+
+void bitblt_bitmap_into_bitmap_tiled_8bit_to_8bit(GBitmap *dest_bitmap,
+                                                  const GBitmap *src_bitmap,
+                                                  GRect dest_rect,
+                                                  GPoint src_origin_offset,
+                                                  GCompOp compositing_mode,
+                                                  GColor8 tint_color) {
+  bitblt_bitmap_into_bitmap_tiled_8bit_to_8bit_c(
+      dest_bitmap, src_bitmap, dest_rect, src_origin_offset, compositing_mode, tint_color);
+}
+#endif
 
 void bitblt_bitmap_into_bitmap_tiled_1bit_to_8bit(GBitmap* dest_bitmap,
                                                   const GBitmap* src_bitmap,

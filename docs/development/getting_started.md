@@ -88,12 +88,13 @@ use checked-in lock files in frozen/offline mode, so incremental firmware
 builds do not access the network. Rust implementations can be selected with
 `CONFIG_CRC32_RUST`, `CONFIG_BASE64_RUST`, `CONFIG_COBS_RUST`,
 `CONFIG_ANCS_UTIL_RUST`, `CONFIG_KRAEPELIN_PIM_RUST`, and
-`CONFIG_TINFLATE_RUST`, for example:
+`CONFIG_TINFLATE_RUST`, and `CONFIG_BITBLT_RUST`, for example:
 
 ```shell
 pbl configure --board <board> -DCONFIG_CRC32_RUST=y \
   -DCONFIG_BASE64_RUST=y -DCONFIG_COBS_RUST=y -DCONFIG_ANCS_UTIL_RUST=y \
-  -DCONFIG_KRAEPELIN_PIM_RUST=y -DCONFIG_TINFLATE_RUST=y
+  -DCONFIG_KRAEPELIN_PIM_RUST=y -DCONFIG_TINFLATE_RUST=y \
+  -DCONFIG_BITBLT_RUST=y
 ```
 
 To build and run their host C-ABI tests:
