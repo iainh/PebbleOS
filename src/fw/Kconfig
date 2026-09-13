@@ -68,6 +68,13 @@ config COMPOSITOR_DAMAGE_RUST
     help
       Track disjoint 16-pixel compositor tiles and skip clean display rows.
 
+config NOTIFICATION_COMPACTION_RUST
+    bool "Rust notification storage compaction planner"
+    depends on SERVICE_NOTIFICATIONS
+    help
+      Compact notification storage with bounded raw record copies and a Rust
+      reclaim planner instead of deserializing and reserializing live records.
+
 config SETTINGS_ICONS
     bool "Settings menu icons"
     help

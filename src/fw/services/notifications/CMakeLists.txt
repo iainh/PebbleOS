@@ -17,6 +17,18 @@ set(sources
   notification_storage.c
   notifications.c
 )
+
+if(CONFIG_NOTIFICATION_COMPACTION_RUST)
+  include(rust)
+  pbl_rust_object(pebble_notification_compaction
+    ${CMAKE_CURRENT_SOURCE_DIR}/notification-compaction-rust rust_object)
+  pbl_library_named(notification_compaction_rust)
+  pbl_library_kind(stlib)
+  pbl_library_sources(${rust_object})
+  set_target_properties(notification_compaction_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(notification_compaction_rust pebble_notification_compaction_rust_build)
+endif()
+
 pbl_library()
 pbl_library_sources(${sources})
 pbl_service_gettext(notifications ${sources})

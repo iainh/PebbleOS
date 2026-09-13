@@ -12,6 +12,7 @@
 #include "pbl/kernel/mutex.h"
 #include "system/passert.h"
 #include "pbl/util/iterator.h"
+#include "pbl/util/math.h"
 
 #include <inttypes.h>
 #include <stddef.h>
@@ -120,6 +121,7 @@ static int prv_write_notification(TimelineItem *notification,
   return bytes_written;
 }
 
+#ifndef CONFIG_NOTIFICATION_COMPACTION_RUST
 //! Iterate over notifications space and mark the oldest notifications as deleted until we have
 //! enough space available
 static void prv_reclaim_space(size_t size_needed, int fd) {
@@ -256,6 +258,160 @@ cleanup:
   pfs_close(new_fd);
   return false;
 }
+#else
+
+#define NOTIFICATION_COMPACTION_COPY_BUFFER_SIZE 256
+
+typedef struct {
+  uint32_t remaining;
+} NotificationReclaimPlan;
+
+extern void notification_reclaim_plan_init(NotificationReclaimPlan *plan, uint32_t required,
+                                           uint32_t already_deleted, uint32_t increment);
+extern bool notification_reclaim_plan_keep(NotificationReclaimPlan *plan, bool deleted,
+                                           uint32_t record_size);
+
+static int prv_copy_serialized_notification(SerializedTimelineItemHeader *header, int source_fd,
+                                            int destination_fd) {
+  header->common.flags = ~header->common.flags;
+  header->common.status = ~header->common.status;
+  int result = pfs_write(destination_fd, (uint8_t *)header, sizeof(*header));
+  header->common.flags = ~header->common.flags;
+  header->common.status = ~header->common.status;
+  if (result != (int)sizeof(*header)) {
+    return result < 0 ? result : E_INTERNAL;
+  }
+
+  uint8_t buffer[NOTIFICATION_COMPACTION_COPY_BUFFER_SIZE];
+  uint32_t remaining = header->payload_length;
+  while (remaining > 0) {
+    const size_t chunk_size = MIN(remaining, sizeof(buffer));
+    result = pfs_read(source_fd, buffer, chunk_size);
+    if (result != (int)chunk_size) {
+      return result < 0 ? result : E_INTERNAL;
+    }
+    result = pfs_write(destination_fd, buffer, chunk_size);
+    if (result != (int)chunk_size) {
+      return result < 0 ? result : E_INTERNAL;
+    }
+    remaining -= chunk_size;
+  }
+
+  return sizeof(*header) + header->payload_length;
+}
+
+static int prv_read_compaction_header(int fd, uint32_t offset,
+                                      SerializedTimelineItemHeader *header) {
+  if ((offset > s_write_offset) ||
+      ((s_write_offset - offset) < sizeof(SerializedTimelineItemHeader))) {
+    return E_INTERNAL;
+  }
+
+  const int result = pfs_read(fd, (uint8_t *)header, sizeof(*header));
+  if (result != (int)sizeof(*header)) {
+    return result < 0 ? result : E_INTERNAL;
+  }
+
+  header->common.flags = ~header->common.flags;
+  header->common.status = ~header->common.status;
+  if (uuid_is_invalid(&header->common.id) || (header->common.status & TimelineItemStatusUnused) ||
+      (header->common.type >= TimelineItemTypeOutOfRange) ||
+      (header->common.layout >= NumLayoutIds) ||
+      (header->payload_length > (s_write_offset - offset - sizeof(SerializedTimelineItemHeader)))) {
+    return E_INTERNAL;
+  }
+
+  return sizeof(*header) + header->payload_length;
+}
+
+static bool prv_get_deleted_bytes(int fd, uint32_t *deleted_bytes_out) {
+  uint32_t deleted_bytes = 0;
+  uint32_t offset = 0;
+  while (offset < s_write_offset) {
+    SerializedTimelineItemHeader header;
+    const int result = prv_read_compaction_header(fd, offset, &header);
+    if (result < 0) {
+      return false;
+    }
+    const uint32_t record_size = result;
+    if (header.common.status & TimelineItemStatusDeleted) {
+      deleted_bytes += record_size;
+    }
+    if (pfs_seek(fd, header.payload_length, FSeekCur) < 0) {
+      return false;
+    }
+    offset += record_size;
+  }
+  *deleted_bytes_out = deleted_bytes;
+  return true;
+}
+
+static bool prv_compress(size_t size_needed, int *fd) {
+  if (pfs_seek(*fd, 0, FSeekSet) < 0) {
+    return false;
+  }
+  int new_fd =
+      pfs_open(FILENAME, OP_FLAG_OVERWRITE, FILE_TYPE_STATIC, NOTIFICATION_STORAGE_FILE_SIZE);
+  if (new_fd < 0) {
+    PBL_LOG_ERR("Error opening new file for compression %d", new_fd);
+    return false;
+  }
+
+  uint32_t deleted_bytes;
+  if (!prv_get_deleted_bytes(*fd, &deleted_bytes) || (pfs_seek(*fd, 0, FSeekSet) < 0)) {
+    PBL_LOG_ERR("Notification storage corrupt during compression");
+    goto cleanup;
+  }
+
+  NotificationReclaimPlan plan;
+  notification_reclaim_plan_init(&plan, size_needed, deleted_bytes,
+                                 NOTIFICATION_STORAGE_MINIMUM_INCREMENT_SIZE);
+
+  uint32_t read_offset = 0;
+  uint32_t write_offset = 0;
+  while (read_offset < s_write_offset) {
+    SerializedTimelineItemHeader header;
+    const int read_result = prv_read_compaction_header(*fd, read_offset, &header);
+    if (read_result < 0) {
+      PBL_LOG_ERR("Notification storage corrupt during compression");
+      goto cleanup;
+    }
+    const uint32_t record_size = read_result;
+    const bool deleted = header.common.status & TimelineItemStatusDeleted;
+    if (!notification_reclaim_plan_keep(&plan, deleted, record_size)) {
+      if (pfs_seek(*fd, header.payload_length, FSeekCur) < 0) {
+        goto cleanup;
+      }
+      read_offset += record_size;
+      continue;
+    }
+
+    const int result = prv_copy_serialized_notification(&header, *fd, new_fd);
+    if (result < 0) {
+      PBL_LOG_ERR("Failed to copy notification during compression (error %d)", result);
+      goto cleanup;
+    }
+    write_offset += result;
+    read_offset += record_size;
+  }
+
+  s_write_offset = write_offset;
+  pfs_close(*fd);
+  pfs_close(new_fd);
+  *fd = pfs_open(FILENAME, OP_FLAG_READ | OP_FLAG_WRITE, FILE_TYPE_STATIC,
+                 NOTIFICATION_STORAGE_FILE_SIZE);
+  if (*fd < 0) {
+    PBL_LOG_ERR("Error re-opening after compression %d", *fd);
+    return false;
+  }
+  return true;
+
+cleanup:
+  pfs_close(*fd);
+  pfs_close(new_fd);
+  return false;
+}
+#endif
 
 void notification_storage_store(TimelineItem* notification) {
   PBL_ASSERTN(notification != NULL);

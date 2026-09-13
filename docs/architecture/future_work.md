@@ -62,6 +62,21 @@ bounded metadata caches. A Pebble-sized design should use:
 Do not port Fxfs or its constants. Recovery time, write amplification and wear
 must remain bounded after power loss at every write boundary.
 
+The first implementation is available behind
+`CONFIG_NOTIFICATION_COMPACTION_RUST`. Profiling showed that the immediate
+latency was in notification storage's use of PFS, not PFS page lookup itself.
+The replacement therefore preserves PFS's temporary-overwrite and recovery
+boundary. A `no_std` Rust planner determines how many oldest records to evict;
+C then copies retained serialized records directly through a fixed 256-byte
+buffer. It avoids a separate tombstone-write pass, per-record heap allocation,
+and payload deserialization and reserialization. Invalid headers, truncated
+payloads and I/O failures abort compaction so a partial store is never accepted.
+
+A deeper PFS rewrite remains future work. It should only proceed after traces
+show page traversal or foreground erases dominate a representative workload;
+changing the on-flash recovery protocol without that evidence adds much more
+corruption risk than this bounded consumer-side change.
+
 ## Bluetooth queues
 
 The communication send queue is a linked list. Queue length, offset copying and
@@ -168,6 +183,29 @@ This workload reduced rows and modelled display-bus traffic by 86.9%. QEMU's
 zero, so the row count is the more reliable regression metric. Validate energy
 and wall-clock latency on each physical display before enabling the option in a
 production board configuration.
+
+Use `storage` mode to fill the 30 KiB notification file with live records and
+then add one more notification. This forces both implementations to evict the
+same oldest 4 KiB before the notification proceeds through dispatch, rendering
+and display completion:
+
+```shell
+.venv/bin/python tools/run_latency_benchmark.py --mode storage \
+  --iterations 15 --output build/storage-results.json
+```
+
+On `qemu_gabbro`, 15 same-host samples produced:
+
+| Implementation | Storage, median | Storage, p95 | End-to-end, median | End-to-end, p95 |
+| --- | ---: | ---: | ---: | ---: |
+| Legacy object rewrite | 72,000 µs | 90,000 µs | 84,000 µs | 105,000 µs |
+| Rust-planned raw copy | 44,000 µs | 55,000 µs | 58,000 µs | 77,000 µs |
+
+The replacement reduced median storage latency by 38.9% and median end-to-end
+latency by 31.0%. The existing storage tests also verify oldest-record
+eviction, tombstone removal, retained payload equality, subsequent writes and
+corruption handling with the Rust option enabled. QEMU timings remain virtual;
+repeat this workload on hardware to measure flash latency, energy and wear.
 
 In an orb, run QEMU as a supervised service rather than a background shell:
 

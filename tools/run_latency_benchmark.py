@@ -72,7 +72,9 @@ def _summarize(results: list[dict[str, int]]) -> dict[str, dict[str, int]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--iterations", type=int, default=20)
-    parser.add_argument("--mode", choices=("synthetic", "damage"), default="synthetic")
+    parser.add_argument(
+        "--mode", choices=("synthetic", "storage", "damage"), default="synthetic"
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=12345)
     parser.add_argument("--monitor", type=Path, default=Path("build/qemu-mon.sock"))
@@ -91,9 +93,10 @@ def main() -> int:
             raise TimeoutError("timed out establishing the QEMU PULSE connection")
         prompt = commander.apps.Prompt(link)
         for iteration in range(args.iterations):
+            command_timeout = 30 if args.mode == "storage" else 15
             response = "\n".join(
                 prompt.command_and_response(
-                    f"latency benchmark {args.mode}", timeout=15
+                    f"latency benchmark {args.mode}", timeout=command_timeout
                 )
             ).encode()
             match = RESULT_RE.search(response)
@@ -108,7 +111,7 @@ def main() -> int:
                 f"rows={result['rows']}"
             )
 
-            if args.mode == "synthetic":
+            if args.mode != "damage":
                 # Let the notification transition settle, then dismiss it before the next sample.
                 time.sleep(0.5)
                 _monitor_command(args.monitor, "sendkey left")

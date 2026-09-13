@@ -244,6 +244,18 @@ else()
   set(kraepelin_transform_sources src/fw/services/activity/kraepelin/kraepelin_transform.c)
 endif()
 
+if(CONFIG_NOTIFICATION_COMPACTION_RUST)
+  include(rust)
+  pbl_rust_object(pebble_notification_compaction
+    ${PBL_BASE}/src/fw/services/notifications/notification-compaction-rust
+    rust_object)
+  add_library(test_notification_compaction_rust STATIC ${rust_object})
+  set_target_properties(test_notification_compaction_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(test_notification_compaction_rust pebble_notification_compaction_rust_build)
+  set(notification_compaction_defines CONFIG_NOTIFICATION_COMPACTION_RUST)
+  set(notification_compaction_libs test_notification_compaction_rust)
+endif()
+
 if(CONFIG_TINFLATE_RUST)
   include(rust)
   pbl_rust_object(pebble_tinflate

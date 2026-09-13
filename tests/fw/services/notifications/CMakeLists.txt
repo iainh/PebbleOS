@@ -20,6 +20,8 @@ pbl_clar_test(test_notification_storage
     src/fw/util/legacy_checksum.c
     tests/fakes/fake_rtc.c
     tests/fakes/fake_spi_flash.c
+  DEFINES ${notification_compaction_defines}
+  LIBS ${notification_compaction_libs}
   OVERRIDES dummy_board
 )
 

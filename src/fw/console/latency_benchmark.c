@@ -12,10 +12,13 @@
 #include "pbl/kernel/irq.h"
 #include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/notifications/notifications.h"
+#include "pbl/services/notifications/notification_storage.h"
+#include "pbl/services/notifications/notification_storage_private.h"
 #include "pbl/services/compositor/compositor.h"
 #include "pbl/services/compositor/compositor_display.h"
 #include "pbl/services/system_task.h"
 #include "pbl/services/timeline/timeline.h"
+#include "pbl/util/uuid.h"
 
 #include <inttypes.h>
 #include <stdbool.h>
@@ -114,7 +117,7 @@ static void prv_arm(void) {
   prompt_command_continues_after_returning();
 }
 
-static void prv_add_synthetic_notification(void) {
+static TimelineItem *prv_create_synthetic_notification(void) {
   AttributeList attributes = {};
   attribute_list_add_cstring(&attributes, AttributeIdTitle, "Latency benchmark");
   attribute_list_add_cstring(
@@ -124,6 +127,31 @@ static void prv_add_synthetic_notification(void) {
   TimelineItem *item = timeline_item_create_with_attributes(
       rtc_get_time(), 0, TimelineItemTypeNotification, LayoutIdNotification, &attributes, NULL);
   attribute_list_destroy_list(&attributes);
+  return item;
+}
+
+static void prv_add_synthetic_notification(void) {
+  TimelineItem *item = prv_create_synthetic_notification();
+  notifications_add_notification(item);
+  timeline_item_destroy(item);
+}
+
+static void prv_run_storage_benchmark(void) {
+  notification_storage_reset_and_init();
+
+  TimelineItem *item = prv_create_synthetic_notification();
+  const size_t record_size =
+      sizeof(SerializedTimelineItemHeader) + timeline_item_get_serialized_payload_size(item);
+  const size_t record_count = NOTIFICATION_STORAGE_FILE_SIZE / record_size;
+  for (size_t i = 0; i < record_count; ++i) {
+    uuid_generate(&item->header.id);
+    item->header.status = 0;
+    notification_storage_store(item);
+  }
+
+  uuid_generate(&item->header.id);
+  item->header.status = 0;
+  prv_arm();
   notifications_add_notification(item);
   timeline_item_destroy(item);
 }
@@ -161,13 +189,15 @@ void command_latency_benchmark(const char *mode) {
   if (strcmp(mode, "synthetic") == 0) {
     prv_arm();
     prv_add_synthetic_notification();
+  } else if (strcmp(mode, "storage") == 0) {
+    prv_run_storage_benchmark();
   } else if (strcmp(mode, "arm") == 0) {
     prv_arm();
     prompt_send_response("LATENCY_ARMED waiting for notification");
   } else if (strcmp(mode, "damage") == 0) {
     prv_run_damage_benchmark();
   } else {
-    prompt_send_response("Usage: latency benchmark synthetic|arm|damage");
+    prompt_send_response("Usage: latency benchmark synthetic|storage|arm|damage");
   }
 }
 
