@@ -6,6 +6,13 @@ config SERVICE_COMPOSITOR
     help
       UI compositor and window transitions.
 
+config COMPOSITOR_LEGACY_SCALER_RUST
+    bool "Rust legacy application scaler"
+    depends on SERVICE_COMPOSITOR && APP_SCALING && SCREEN_COLOR_DEPTH_BITS = 8
+    help
+      Scale legacy ARGB2222 application framebuffer rows with the bounded
+      Rust nearest-neighbour and bilinear kernel.
+
 if SERVICE_COMPOSITOR
 
 module = SERVICE_COMPOSITOR
