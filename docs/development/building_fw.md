@@ -35,6 +35,7 @@ pbl console --tty $SERIAL_ADAPTER
 
 Try sending `help` to get a list of available console commands.
 
+(loading-firmware-via-bluetooth)=
 ## Loading firmware via Bluetooth
 
 If you don't have a firmware development kit, you may bundle a `.pbz` file for sideloading 
