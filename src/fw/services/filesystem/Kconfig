@@ -8,6 +8,11 @@ config SERVICE_FILESYSTEM
 
 if SERVICE_FILESYSTEM
 
+config PFS_RUST
+    bool "Rust PFS implementation"
+    help
+      Replace the C Pebble filesystem with the transactional Rust implementation.
+
 module = SERVICE_FILESYSTEM
 module-str = Filesystem
 source "subsys/logging/Kconfig.template.log_level"

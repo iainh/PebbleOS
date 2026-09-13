@@ -21,7 +21,10 @@ typedef struct FakeFlashState {
   uint32_t bytes_left_till_write_failure;
   jmp_buf *jmp_on_failure;
   uint8_t* storage; //! Allocated buffer of length bytes.
+  uint32_t read_count;
+  uint64_t read_bytes;
   uint32_t write_count;
+  uint64_t write_bytes;
   uint32_t erase_count;
 } FakeFlashState;
 
@@ -125,10 +128,16 @@ void fake_spi_flash_force_future_failure(int after_n_bytes, jmp_buf *retire_to) 
   s_state.jmp_on_failure = retire_to;
 }
 
+void fake_spi_flash_clear_failure(void) {
+  s_state.jmp_on_failure = NULL;
+}
+
 void flash_read_bytes(uint8_t* buffer, uint32_t start_addr, uint32_t buffer_size) {
   cl_assert(start_addr >= s_state.offset);
   cl_assert(start_addr + buffer_size <= s_state.offset + s_state.length);
 
+  ++s_state.read_count;
+  s_state.read_bytes += buffer_size;
   memcpy(buffer, s_state.storage + (start_addr - s_state.offset), buffer_size);
 }
 
@@ -137,6 +146,7 @@ void flash_write_bytes(const uint8_t* buffer, uint32_t start_addr, uint32_t buff
   cl_assert(start_addr + buffer_size <= s_state.offset + s_state.length);
 
   ++s_state.write_count;
+  s_state.write_bytes += buffer_size;
 
   for (int i = 0; i < buffer_size; ++i) {
     if (s_state.jmp_on_failure != NULL) {
@@ -192,4 +202,24 @@ uint32_t fake_flash_write_count(void) {
 
 uint32_t fake_flash_erase_count(void) {
   return s_state.erase_count;
+}
+
+void fake_flash_counters_reset(void) {
+  s_state.read_count = 0;
+  s_state.read_bytes = 0;
+  s_state.write_count = 0;
+  s_state.write_bytes = 0;
+  s_state.erase_count = 0;
+}
+
+uint32_t fake_flash_read_count(void) {
+  return s_state.read_count;
+}
+
+uint64_t fake_flash_read_bytes(void) {
+  return s_state.read_bytes;
+}
+
+uint64_t fake_flash_write_bytes(void) {
+  return s_state.write_bytes;
 }

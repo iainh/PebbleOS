@@ -342,6 +342,65 @@ void test_pfs__overwrite(void) {
   pfs_close(fd);
 }
 
+#if CONFIG_PFS_RUST
+extern void pfs_reset_all_state(void);
+#endif
+
+void test_pfs__overwrite_survives_power_loss(void) {
+#if CONFIG_PFS_RUST
+  const char *name = "atomic";
+  uint8_t old_data[257];
+  uint8_t new_data[257];
+  memset(old_data, 0x35, sizeof(old_data));
+  memset(new_data, 0xca, sizeof(new_data));
+
+  pfs_format(false);
+  int fd = pfs_open(name, OP_FLAG_WRITE, FILE_TYPE_STATIC, sizeof(old_data));
+  cl_assert(fd >= 0);
+  cl_assert_equal_i(pfs_write(fd, old_data, sizeof(old_data)), sizeof(old_data));
+  cl_assert_equal_i(pfs_close(fd), S_SUCCESS);
+
+  fake_flash_counters_reset();
+  fd = pfs_open(name, OP_FLAG_OVERWRITE, FILE_TYPE_STATIC, sizeof(new_data));
+  cl_assert(fd >= 0);
+  cl_assert_equal_i(pfs_write(fd, new_data, sizeof(new_data)), sizeof(new_data));
+  cl_assert_equal_i(pfs_close(fd), S_SUCCESS);
+  const uint64_t total = fake_flash_write_bytes();
+  cl_assert(total > sizeof(new_data) + 8);
+
+  const int cuts[] = { 0, 1, 32, (int)(total / 2), (int)(total - 7),
+                       (int)(total - 3), (int)(total - 1), (int)total };
+  for (size_t i = 0; i < ARRAY_LENGTH(cuts); ++i) {
+    pfs_format(false);
+    fd = pfs_open(name, OP_FLAG_WRITE, FILE_TYPE_STATIC, sizeof(old_data));
+    cl_assert(fd >= 0);
+    cl_assert_equal_i(pfs_write(fd, old_data, sizeof(old_data)), sizeof(old_data));
+    cl_assert_equal_i(pfs_close(fd), S_SUCCESS);
+
+    jmp_buf power_loss;
+    if (setjmp(power_loss) == 0) {
+      fake_spi_flash_force_future_failure(cuts[i], &power_loss);
+      fd = pfs_open(name, OP_FLAG_OVERWRITE, FILE_TYPE_STATIC, sizeof(new_data));
+      if (fd >= 0) {
+        pfs_write(fd, new_data, sizeof(new_data));
+        pfs_close(fd);
+      }
+    }
+    fake_spi_flash_clear_failure();
+    pfs_reset_all_state();
+    cl_assert_equal_i(pfs_init(false), S_SUCCESS);
+
+    uint8_t actual[sizeof(old_data)];
+    fd = pfs_open(name, OP_FLAG_READ, 0, 0);
+    cl_assert(fd >= 0);
+    cl_assert_equal_i(pfs_read(fd, actual, sizeof(actual)), sizeof(actual));
+    cl_assert(memcmp(actual, old_data, sizeof(actual)) == 0 ||
+              memcmp(actual, new_data, sizeof(actual)) == 0);
+    cl_assert_equal_i(pfs_close(fd), S_SUCCESS);
+  }
+#endif
+}
+
 void test_pfs__seek(void) {
   int len = 10;
   int fd = pfs_open("newfile", OP_FLAG_WRITE, FILE_TYPE_STATIC, len);

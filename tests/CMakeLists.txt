@@ -37,12 +37,37 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(pebbleos-tests LANGUAGES C)
 
 option(GLYPH_RASTER_BENCHMARK "Build the optimized host glyph benchmark" OFF)
+option(CONFIG_PFS_RUST "Use the Rust PFS implementation in filesystem tests" OFF)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
 
 include(extensions)
 include(pbl_test)
+
+if(CONFIG_PFS_RUST)
+  include(rust)
+  pbl_rust_object(pebble_pfs ${PBL_BASE}/src/fw/services/filesystem/pfs-rust pfs_rust_object)
+  add_library(test_pfs_rust STATIC ${pfs_rust_object})
+  set_target_properties(test_pfs_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(test_pfs_rust pebble_pfs_rust_build)
+  execute_process(
+    COMMAND ${RUSTC} --print target-libdir
+    OUTPUT_VARIABLE rust_host_libdir
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  file(GLOB rust_core ${rust_host_libdir}/libcore-*.rlib)
+  file(GLOB rust_compiler_builtins ${rust_host_libdir}/libcompiler_builtins-*.rlib)
+  set(pfs_sources
+    src/fw/services/filesystem/pfs-rust/pfs_shim.c
+  )
+  set(pfs_libs test_pfs_rust ${rust_core} ${rust_compiler_builtins})
+  set(pfs_impl rust)
+  set(pfs_defines CONFIG_PFS_RUST=1)
+else()
+  set(pfs_sources src/fw/services/filesystem/pfs.c)
+  set(pfs_impl c)
+endif()
 
 if(GLYPH_RASTER_BENCHMARK)
   list(REMOVE_ITEM PBL_TEST_C_FLAGS -O0)
