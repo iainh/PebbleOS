@@ -35,21 +35,17 @@ fn mark(
         return;
     }
 
-    let last_column = (x1 as usize - 1) / TILE_SIZE;
     let last_row = (y1 as usize - 1) / TILE_SIZE;
     for tile_y in y0..=last_row {
-        for tile_x in x0..=last_column {
-            let bit = tile_y * tile_columns + tile_x;
-            if let Some(word) = tiles.get_mut(bit / 32) {
-                *word |= 1 << (bit % 32);
-            }
+        if let Some(word) = tiles.get_mut(tile_y / 32) {
+            *word |= 1 << (tile_y % 32);
         }
     }
 }
 
 fn next_row(
     tiles: &[u32],
-    tile_columns: usize,
+    _tile_columns: usize,
     tile_rows: usize,
     start_y: usize,
     height: usize,
@@ -60,13 +56,9 @@ fn next_row(
         if tile_y >= tile_rows {
             break;
         }
-        let first_bit = tile_y * tile_columns;
-        let dirty = (0..tile_columns).any(|column| {
-            let bit = first_bit + column;
-            tiles
-                .get(bit / 32)
-                .is_some_and(|word| word & (1 << (bit % 32)) != 0)
-        });
+        let dirty = tiles
+            .get(tile_y / 32)
+            .is_some_and(|word| word & (1 << (tile_y % 32)) != 0);
         if dirty {
             return row as u16;
         }
@@ -135,7 +127,7 @@ mod tests {
 
     #[test]
     fn preserves_disjoint_tile_rows() {
-        let mut tiles = [0; 10];
+        let mut tiles = [0; 1];
         mark(&mut tiles, 17, 17, 0, 8, 1, 1);
         mark(&mut tiles, 17, 17, 0, 251, 1, 1);
 
@@ -152,5 +144,13 @@ mod tests {
         mark(&mut tiles, 2, 2, 40, 40, 5, 5);
 
         assert_eq!(tiles[0], 1);
+    }
+
+    #[test]
+    fn records_each_vertical_tile_only_once() {
+        let mut tiles = [0; 1];
+        mark(&mut tiles, 17, 17, 0, 0, 260, 260);
+
+        assert_eq!(tiles[0], (1 << 17) - 1);
     }
 }

@@ -41,7 +41,7 @@ bool framebuffer_is_dirty(FrameBuffer *f);
 //! Return the first dirty row at or after start_y, or UINT16_MAX if none remain.
 uint16_t framebuffer_get_next_dirty_row(FrameBuffer *f, uint16_t start_y);
 
-//! Add a clipped rectangle to the tile damage map.
+//! Add a clipped rectangle to the row-tile damage map.
 void framebuffer_damage_mark_rect(FrameBuffer *f, GRect rect);
 
 //! Creates a GBitmap struct that points to the framebuffer. Useful for using the framebuffer data
