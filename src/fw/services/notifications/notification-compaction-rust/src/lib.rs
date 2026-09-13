@@ -22,7 +22,7 @@ fn reclaim_target(required: u32, increment: u32) -> u32 {
 impl ReclaimPlan {
     fn new(required: u32, already_deleted: u32, increment: u32) -> Self {
         Self {
-            remaining: reclaim_target(required, increment).saturating_sub(already_deleted),
+            remaining: reclaim_target(required.saturating_sub(already_deleted), increment),
         }
     }
 
@@ -75,14 +75,25 @@ mod tests {
         assert!(!plan.keep(true, 40));
         assert!(!plan.keep(false, 35));
         assert!(!plan.keep(false, 30));
+        assert!(!plan.keep(false, 35));
         assert!(plan.keep(false, 20));
     }
 
     #[test]
     fn keeps_live_records_when_tombstones_satisfy_target() {
-        let mut plan = ReclaimPlan::new(80, 100, 100);
+        let mut plan = ReclaimPlan::new(80, 80, 100);
+
+        assert!(!plan.keep(true, 80));
+        assert!(plan.keep(false, 20));
+    }
+
+    #[test]
+    fn rounds_only_the_space_missing_after_tombstones() {
+        let mut plan = ReclaimPlan::new(101, 100, 100);
 
         assert!(!plan.keep(true, 100));
+        assert!(!plan.keep(false, 60));
+        assert!(!plan.keep(false, 40));
         assert!(plan.keep(false, 20));
     }
 }
