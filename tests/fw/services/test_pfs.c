@@ -401,6 +401,39 @@ void test_pfs__overwrite_survives_power_loss(void) {
 #endif
 }
 
+void test_pfs__payload_corruption_is_detected(void) {
+#if CONFIG_PFS_RUST
+  static const char name[] = "payload-crc";
+  uint8_t data[257];
+  memset(data, 0xca, sizeof(data));
+
+  int fd = pfs_open(name, OP_FLAG_WRITE, FILE_TYPE_STATIC, sizeof(data));
+  cl_assert(fd >= 0);
+  cl_assert_equal_i(pfs_write(fd, data, sizeof(data)), sizeof(data));
+  uint16_t start_page = test_get_file_start_page(fd);
+  cl_assert_equal_i(pfs_close(fd), S_SUCCESS);
+
+  const uint8_t corrupt = 0;
+  const uint32_t v2_data_offset = 28 + 16 + 32 + sizeof(name) - 1;
+  ftl_write((uint8_t *)&corrupt, sizeof(corrupt),
+            start_page * PFS_SECTOR_SIZE + v2_data_offset);
+
+  cl_assert_equal_i(pfs_open(name, OP_FLAG_READ, 0, 0), E_ERROR);
+#endif
+}
+
+void test_pfs__file_crc_preserves_legacy_checksum(void) {
+  static const char contents[] = "12345";
+  int fd = pfs_open("file-crc", OP_FLAG_WRITE | OP_FLAG_READ, FILE_TYPE_STATIC,
+                    sizeof(contents) - 1);
+  cl_assert(fd >= 0);
+  cl_assert_equal_i(pfs_write(fd, contents, sizeof(contents) - 1), sizeof(contents) - 1);
+
+  cl_assert_equal_i(pfs_crc_calculate_file(fd, 0, sizeof(contents) - 1), 0xec5baa37);
+  cl_assert_equal_i(pfs_seek(fd, 0, FSeekCur), sizeof(contents) - 1);
+  cl_assert_equal_i(pfs_close(fd), S_SUCCESS);
+}
+
 void test_pfs__seek(void) {
   int len = 10;
   int fd = pfs_open("newfile", OP_FLAG_WRITE, FILE_TYPE_STATIC, len);

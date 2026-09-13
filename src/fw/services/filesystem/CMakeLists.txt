@@ -5,11 +5,10 @@ set(sources app_file.c flash_translation.c)
 
 if(CONFIG_PFS_RUST)
   include(rust)
-  pbl_rust_object(pebble_pfs ${CMAKE_CURRENT_SOURCE_DIR}/pfs-rust rust_object)
-  get_filename_component(rust_output_dir ${rust_object} DIRECTORY)
+  pbl_rust_object(pebble_pfs ${CMAKE_CURRENT_SOURCE_DIR}/pfs-rust rust_object rust_archive)
   add_library(pfs_rust STATIC IMPORTED GLOBAL)
   set_target_properties(pfs_rust PROPERTIES
-    IMPORTED_LOCATION ${rust_output_dir}/libpebble_pfs.a
+    IMPORTED_LOCATION ${rust_archive}
     INTERFACE_LINK_DEPENDS ${rust_object}
   )
   add_dependencies(pfs_rust pebble_pfs_rust_build)

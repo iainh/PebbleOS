@@ -73,9 +73,15 @@ function(pbl_rust_object name crate_dir output_var)
   endif()
 
   set(rust_object ${rust_object_dir}/release/${name}.o)
+  set(rust_byproducts "")
+  if(ARGC GREATER 3)
+    set(rust_archive ${rust_object_dir}/release/lib${name}.a)
+    set(rust_byproducts ${rust_archive})
+  endif()
   file(GLOB_RECURSE rust_sources CONFIGURE_DEPENDS ${crate_dir}/src/*.rs)
   add_custom_command(
     OUTPUT ${rust_object}
+    BYPRODUCTS ${rust_byproducts}
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${rust_object_dir}/release
     COMMAND ${CMAKE_COMMAND} -E env
             CARGO_TARGET_DIR=${rust_target_dir}
@@ -98,4 +104,7 @@ function(pbl_rust_object name crate_dir output_var)
     GENERATED TRUE
   )
   set(${output_var} ${rust_object} PARENT_SCOPE)
+  if(ARGC GREATER 3)
+    set(${ARGV3} ${rust_archive} PARENT_SCOPE)
+  endif()
 endfunction()

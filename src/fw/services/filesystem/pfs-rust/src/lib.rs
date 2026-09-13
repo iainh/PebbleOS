@@ -58,6 +58,20 @@ extern "C" {
     fn pfs_rust_unlock();
     fn pfs_rust_alloc(size: usize) -> *mut c_void;
     fn pfs_rust_free(ptr: *mut c_void);
+    fn legacy_defective_checksum_init(checksum: *mut LegacyChecksum);
+    fn legacy_defective_checksum_update(
+        checksum: *mut LegacyChecksum,
+        data: *const c_void,
+        length: usize,
+    );
+    fn legacy_defective_checksum_finish(checksum: *mut LegacyChecksum) -> u32;
+}
+
+#[repr(C)]
+struct LegacyChecksum {
+    reg: u32,
+    accumulator: [u8; 3],
+    accumulated_length: u8,
 }
 
 #[derive(Clone, Copy)]
@@ -167,10 +181,10 @@ unsafe fn program(off: usize, b: &[u8]) -> bool {
         return true;
     }
     ftl_write(b.as_ptr().cast(), b.len(), off as u32);
-    let mut v = [0u8; 64];
+    let mut v = [0u8; 256];
     let mut n = 0;
     while n < b.len() {
-        let z = min(64, b.len() - n);
+        let z = min(v.len(), b.len() - n);
         read(off + n, &mut v[..z]);
         if v[..z] != b[n..n + z] {
             return false;
@@ -187,15 +201,29 @@ unsafe fn program(off: usize, b: &[u8]) -> bool {
     }
     true
 }
-fn crc32(mut c: u32, data: &[u8]) -> u32 {
-    c = !c;
-    for &x in data {
-        c ^= x as u32;
-        for _ in 0..8 {
-            c = (c >> 1) ^ ((0u32.wrapping_sub(c & 1)) & 0xedb88320)
+const fn crc32_table() -> [u32; 256] {
+    let mut table = [0; 256];
+    let mut i = 0;
+    while i < table.len() {
+        let mut crc = i as u32;
+        let mut bit = 0;
+        while bit < 8 {
+            crc = (crc >> 1) ^ ((0u32.wrapping_sub(crc & 1)) & 0xedb88320);
+            bit += 1;
         }
+        table[i] = crc;
+        i += 1;
     }
-    !c
+    table
+}
+
+fn crc32(mut crc: u32, data: &[u8]) -> u32 {
+    const TABLE: [u32; 256] = crc32_table();
+    crc = !crc;
+    for &byte in data {
+        crc = (crc >> 8) ^ TABLE[((crc ^ u32::from(byte)) & 0xff) as usize];
+    }
+    !crc
 }
 fn legacy(data: &[u8]) -> u32 {
     let mut c = 0xffff_ffffu32;
@@ -984,16 +1012,7 @@ pub unsafe extern "C" fn pfs_close(fd: i32) -> i32 {
         let Some(c) = file_crc(h.start, h.nl, h.size) else {
             return ERR;
         };
-        if !program(h.start as usize * PAGE + PH + FH + 10, &c.to_le_bytes())
-            || !validate(Found {
-                page: h.start,
-                size: h.size,
-                nl: h.nl,
-                generation: h.generation,
-                version: V2,
-                crc: c,
-            })
-        {
+        if !program(h.start as usize * PAGE + PH + FH + 10, &c.to_le_bytes()) {
             return ERR;
         }
         if !program(h.start as usize * PAGE + PH + FH + 2, &[0, 0]) {
@@ -1137,7 +1156,12 @@ pub unsafe extern "C" fn pfs_crc_calculate_file(fd: i32, o: u32, n: u32) -> u32 
     if !h.used || o.checked_add(n).map_or(true, |x| x > h.size) {
         return 0;
     }
-    let mut c = 0;
+    let mut checksum = LegacyChecksum {
+        reg: 0,
+        accumulator: [0; 3],
+        accumulated_length: 0,
+    };
+    legacy_defective_checksum_init(&mut checksum);
     let mut b = [0u8; 256];
     let mut x = 0;
     while x < n {
@@ -1158,10 +1182,11 @@ pub unsafe extern "C" fn pfs_crc_calculate_file(fd: i32, o: u32, n: u32) -> u32 
         {
             return 0;
         }
-        c = crc32(c, &b[..z]);
+        legacy_defective_checksum_update(&mut checksum, b.as_ptr().cast(), z);
         x += z as u32
     }
-    c
+    HANDLES[i].off = o + n;
+    legacy_defective_checksum_finish(&mut checksum)
 }
 #[no_mangle]
 pub unsafe extern "C" fn pfs_watch_file(

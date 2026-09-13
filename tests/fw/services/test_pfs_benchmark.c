@@ -115,6 +115,16 @@ static void prv_read_page(int iterations) {
   }
 }
 
+static void prv_read_page_skip_crc(int iterations) {
+  for (int i = 0; i < iterations; ++i) {
+    int fd = pfs_open("page", OP_FLAG_READ | OP_FLAG_SKIP_HDR_CRC_CHECK, 0, 0);
+    cl_assert(fd >= 0);
+    cl_assert_equal_i(pfs_read(fd, s_page, sizeof(s_page)), sizeof(s_page));
+    cl_assert_equal_i(pfs_close(fd), S_SUCCESS);
+    s_checksum += s_page[(i * 131) % sizeof(s_page)];
+  }
+}
+
 static void prv_overwrite_page(int iterations) {
   for (int i = 0; i < iterations; ++i) {
     s_page[0] = (uint8_t)i;
@@ -147,6 +157,20 @@ static void prv_random_read(int iterations) {
   cl_assert_equal_i(pfs_close(fd), S_SUCCESS);
 }
 
+static void prv_random_read_skip_crc(int iterations) {
+  uint8_t value;
+  int fd =
+      pfs_open("large", OP_FLAG_READ | OP_FLAG_SKIP_HDR_CRC_CHECK | OP_FLAG_USE_PAGE_CACHE, 0, 0);
+  cl_assert(fd >= 0);
+  for (int i = 0; i < iterations; ++i) {
+    uint32_t offset = (uint32_t)(i * 4051) % sizeof(s_large);
+    cl_assert_equal_i(pfs_seek(fd, offset, FSeekSet), offset);
+    cl_assert_equal_i(pfs_read(fd, &value, 1), 1);
+    s_checksum += value;
+  }
+  cl_assert_equal_i(pfs_close(fd), S_SUCCESS);
+}
+
 void test_pfs_benchmark__initialize(void) {
   fake_spi_flash_init(0, 0x1000000);
   cl_assert_equal_i(pfs_init(false), S_SUCCESS);
@@ -166,6 +190,8 @@ void test_pfs_benchmark__run(void) {
       "bytes,erase_calls,checksum");
   prv_report("create_small", 16, prv_no_setup, prv_create_small);
   prv_report("read_page", 32, prv_setup_page, prv_read_page);
+  prv_report("read_page_skip_crc", 32, prv_setup_page, prv_read_page_skip_crc);
   prv_report("overwrite_page", 8, prv_setup_page, prv_overwrite_page);
   prv_report("random_read", 128, prv_setup_large, prv_random_read);
+  prv_report("random_read_skip_crc", 128, prv_setup_large, prv_random_read_skip_crc);
 }
