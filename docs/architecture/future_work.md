@@ -159,6 +159,13 @@ work, but make performance and energy decisions from physical-device results.
    `src/fw/drivers/display/sf32lb/display_jdi.c` and
    `src/fw/services/compositor/compositor_display.c`.
 
+   A first bounded Rust conversion-and-mirroring kernel was rejected. Against
+   the original word-at-a-time C conversion, the 8,192-row `qemu_emery`
+   workload regressed from an 11,000 µs median to 14,000 µs and added 480 bytes
+   of flash. Both paths produced the same framebuffer checksum. Disjoint DMA
+   updates remain future work because QEMU cannot validate LCDC region,
+   cache-flush or end-of-frame behaviour.
+
 2. **Legacy-app scaling.** Emery scales 144×168 Basalt applications to its
    200×228 display. Bilinear mode calculates fixed-point coordinates, samples
    four pixels and interpolates three colour channels for every output pixel.
@@ -167,6 +174,14 @@ work, but make performance and energy decisions from physical-device results.
    inner channel loop. Benchmark exact framebuffer output and cycles per frame
    for nearest-neighbour, bilinear, timeline peek and clipped updates. Relevant
    code: `src/fw/services/compositor/compositor.c`.
+
+   The first implementation is available behind
+   `CONFIG_COMPOSITOR_LEGACY_SCALER_RUST`. A bounded row kernel preserves the C
+   clipping and ARGB2222 interpolation rules. Over 20 same-host `qemu_emery`
+   samples, 4,096 bilinear rows improved from a 35,500 µs median and 59,000 µs
+   p95 to 29,500 µs and 37,000 µs. The output checksum matched and the option
+   adds 672 bytes of flash with no RAM increase. Repeat frame and energy
+   measurements on Obelix before enabling it by default.
 
 3. **Touch sampling and event delivery.** CST816 position changes take the I²C
    lock, then the touch service takes another mutex and posts each changed

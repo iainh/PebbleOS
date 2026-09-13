@@ -17,6 +17,7 @@
 #include "pbl/services/notifications/notification_storage_private.h"
 #include "pbl/services/compositor/compositor.h"
 #include "pbl/services/compositor/compositor_display.h"
+#include "services/compositor/legacy_scaler.h"
 #include "pbl/services/comm_session/session_send_queue.h"
 #include "pbl/services/system_task.h"
 #include "pbl/services/timeline/timeline.h"
@@ -215,8 +216,17 @@ void command_latency_benchmark(const char *mode) {
                              "HEAP_RESULT version=1 total_us=%" PRIu64 " checksum=%" PRIu32
                              " cycles=2048 stable=%" PRIu32,
                              prv_ticks_to_us(elapsed), checksum, stable_reallocs);
+  } else if (strcmp(mode, "scaler") == 0) {
+    const RtcTicks start = rtc_get_ticks();
+    const uint32_t checksum = compositor_legacy_scaler_benchmark(4096);
+    const RtcTicks elapsed = rtc_get_ticks() - start;
+    char buffer[112];
+    prompt_send_response_fmt(buffer, sizeof(buffer),
+                             "SCALER_RESULT version=1 total_us=%" PRIu64 " checksum=%" PRIu32
+                             " rows=4096",
+                             prv_ticks_to_us(elapsed), checksum);
   } else {
-    prompt_send_response("Usage: latency benchmark synthetic|storage|arm|damage|queue|heap");
+    prompt_send_response("Usage: latency benchmark synthetic|storage|arm|damage|queue|heap|scaler");
   }
 }
 

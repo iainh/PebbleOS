@@ -4,6 +4,10 @@
 #include "pbl/services/compositor/compositor.h"
 #include "pbl/services/compositor/compositor_display.h"
 
+#ifdef CONFIG_COMPOSITOR_LEGACY_SCALER_RUST
+#include "services/compositor/legacy_scaler.h"
+#endif
+
 #include "applib/graphics/bitblt.h"
 #include "applib/graphics/framebuffer.h"
 #include "applib/graphics/gcontext.h"
@@ -642,6 +646,41 @@ void compositor_scaled_app_fb_copy_offset(const GRect update_rect, bool copy_rel
 
       uint8_t *dst_line = dst_row_info.data;
 
+#ifdef CONFIG_COMPOSITOR_LEGACY_SCALER_RUST
+      int16_t first_x = MAX(update_rect.origin.x, dst_row_info.min_x);
+      int16_t last_x = MIN(update_rect.origin.x + update_rect.size.w,
+                           dst_row_info.max_x + 1);
+      if (squish_watchface_for_peek) {
+        first_x = MAX(first_x, scale_to.origin.x);
+        last_x = MIN(last_x, scale_to.origin.x + scale_to.size.w);
+      }
+      if (first_x < last_x) {
+        const uint16_t first_coord = squish_watchface_for_peek
+            ? first_x - scale_to.origin.x
+            : copy_relative_to_origin ? CLIP(first_x, 0, disp_width - 1)
+                                      : first_x - update_rect.origin.x;
+        const CompositorScaleRowArgs args = {
+          .dst = dst_line,
+          .dst_len = disp_width,
+          .src = src_row_info.data,
+          .src_len = app_width,
+          .src_next = src_row_info_next.data,
+          .src_next_len = app_width,
+          .dst_start = first_x,
+          .dst_count = last_x - first_x,
+          .src_min_x = src_row_info.min_x,
+          .src_max_x = src_row_info.max_x,
+          .src_next_min_x = src_row_info_next.min_x,
+          .src_next_max_x = src_row_info_next.max_x,
+          .first_coord = first_coord,
+          .coord_limit = copy_relative_to_origin ? disp_width - 1 : UINT16_MAX,
+          .scale_x = scale_x,
+          .fy = fy,
+          .flags = bilinear ? CompositorScaleRowFlag_Bilinear : 0,
+        };
+        compositor_scale_argb2222_row(&args);
+      }
+#else
       for (int16_t dst_x = 0; dst_x < update_rect.size.w; dst_x++) {
         const int16_t dst_x_offset = dst_x + update_rect.origin.x;
         if (dst_x_offset < dst_row_info.min_x || dst_x_offset > dst_row_info.max_x) {
@@ -707,6 +746,7 @@ void compositor_scaled_app_fb_copy_offset(const GRect update_rect, bool copy_rel
           dst_line[dst_x_offset] = result;
         }
       }
+#endif
     }
   } else if (shift_watchface_for_peek) {
     const int16_t app_offset_x = (disp_width - app_width) / 2;
