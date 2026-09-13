@@ -27,6 +27,7 @@ const USER_FD: usize = 8;
 const FD_BASE: i32 = 1001;
 const MAX_WATCH: usize = 16;
 const MAX_PAGE_MAP_ENTRIES: usize = 32;
+const FILE_CACHE_ENTRIES: usize = 8;
 const V1: u16 = 0x5001;
 const V2: u16 = 0x5002;
 const GC_MAGIC: [u8; 8] = *b"PFSGC2\0\0";
@@ -126,8 +127,20 @@ const EMPTY_WATCH: Watch = Watch {
     data: ptr::null_mut(),
 };
 
+#[derive(Clone, Copy)]
+struct FileCacheEntry {
+    start: u16,
+    name_hash: u32,
+}
+const EMPTY_FILE_CACHE_ENTRY: FileCacheEntry = FileCacheEntry {
+    start: INVALID,
+    name_hash: 0,
+};
+
 static mut HANDLES: [Handle; MAX_FD] = [EMPTY_HANDLE; MAX_FD];
 static mut WATCHES: [Watch; MAX_WATCH] = [EMPTY_WATCH; MAX_WATCH];
+static mut FILE_CACHE: [FileCacheEntry; FILE_CACHE_ENTRIES] =
+    [EMPTY_FILE_CACHE_ENTRY; FILE_CACHE_ENTRIES];
 static mut SIZE: u32 = 0;
 static mut PAGES: u16 = 0; // excludes the reserved GC sector
 static mut PAGE_FLAGS: *mut u8 = ptr::null_mut();
@@ -270,6 +283,23 @@ unsafe fn alloc_name(name: &[u8]) -> *mut u8 {
     }
     copy
 }
+
+fn name_hash(name: &[u8]) -> u32 {
+    name.iter().fold(0x811c9dc5, |hash, &byte| {
+        (hash ^ byte as u32).wrapping_mul(0x01000193)
+    })
+}
+unsafe fn cache_file(hash: u32, start: u16) {
+    FILE_CACHE[hash as usize % FILE_CACHE_ENTRIES] = FileCacheEntry {
+        start,
+        name_hash: hash,
+    };
+}
+unsafe fn clear_file_cache() {
+    for i in 0..FILE_CACHE_ENTRIES {
+        FILE_CACHE[i] = EMPTY_FILE_CACHE_ENTRY;
+    }
+}
 unsafe fn clear_handles() {
     for i in 0..MAX_FD {
         let handle = &mut HANDLES[i];
@@ -342,6 +372,23 @@ unsafe fn header(page: u16, skip: bool) -> Option<Found> {
     })
 }
 unsafe fn find(name: &[u8], skip: bool) -> Option<Found> {
+    let hash = name_hash(name);
+    let cached = FILE_CACHE[hash as usize % FILE_CACHE_ENTRIES];
+    if hash == cached.name_hash {
+        if let Some(f) = header(cached.start, skip) {
+            if f.nl as usize == name.len() {
+                let mut cached_name = [0; 255];
+                read(
+                    f.page as usize * PAGE + NAME_AT,
+                    &mut cached_name[..name.len()],
+                );
+                if &cached_name[..name.len()] == name {
+                    return Some(f);
+                }
+            }
+        }
+    }
+
     let mut best = None;
     for p in 0..PAGES {
         if let Some(f) = header(p, skip) {
@@ -375,6 +422,9 @@ unsafe fn find(name: &[u8], skip: bool) -> Option<Found> {
                 }
             }
         }
+    }
+    if let Some(f) = best {
+        cache_file(hash, f.page);
     }
     best
 }
@@ -698,6 +748,7 @@ unsafe fn notify(name: &[u8], event: u8) {
 pub unsafe extern "C" fn pfs_init(_: bool) -> i32 {
     let _g = Guard::new();
     clear_handles();
+    clear_file_cache();
     ftl_populate_region_list();
     SIZE = ftl_get_size();
     if SIZE <= SECTOR as u32 || SIZE as usize % PAGE != 0 {
@@ -753,7 +804,8 @@ pub unsafe extern "C" fn pfs_format(write_headers: bool) {
         fill_page_flags(0, PAGES, 0xff);
     }
     clear_handles();
-    LAST_WRITTEN = INVALID
+    LAST_WRITTEN = INVALID;
+    clear_file_cache()
 }
 #[no_mangle]
 pub unsafe extern "C" fn pfs_open(
@@ -1002,6 +1054,7 @@ pub unsafe extern "C" fn pfs_close(fd: i32) -> i32 {
         if h.old != INVALID {
             mark_deleted(h.old)
         }
+        cache_file(name_hash(stored_name(h.name, h.nl)), h.start);
         notify(stored_name(h.name, h.nl), 1)
     }
     HANDLES[i] = EMPTY_HANDLE;
@@ -1310,7 +1363,8 @@ pub unsafe extern "C" fn pfs_reset_all_state() {
         }
         *watch = EMPTY_WATCH;
     }
-    INITIALIZED = false
+    INITIALIZED = false;
+    clear_file_cache()
 }
 #[no_mangle]
 pub unsafe extern "C" fn test_get_file_start_page(fd: i32) -> u16 {
