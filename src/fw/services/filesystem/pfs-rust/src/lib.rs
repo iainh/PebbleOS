@@ -49,6 +49,8 @@ const NOENT: i32 = -9;
 const INVALID_OP: i32 = -10;
 
 extern "C" {
+    #[link_name = "crc32"]
+    fn crc32_ffi(crc: u32, data: *const c_void, length: usize) -> u32;
     fn ftl_get_size() -> u32;
     fn ftl_populate_region_list();
     fn ftl_read(buf: *mut c_void, size: usize, offset: u32);
@@ -201,29 +203,8 @@ unsafe fn program(off: usize, b: &[u8]) -> bool {
     }
     true
 }
-const fn crc32_table() -> [u32; 256] {
-    let mut table = [0; 256];
-    let mut i = 0;
-    while i < table.len() {
-        let mut crc = i as u32;
-        let mut bit = 0;
-        while bit < 8 {
-            crc = (crc >> 1) ^ ((0u32.wrapping_sub(crc & 1)) & 0xedb88320);
-            bit += 1;
-        }
-        table[i] = crc;
-        i += 1;
-    }
-    table
-}
-
-fn crc32(mut crc: u32, data: &[u8]) -> u32 {
-    const TABLE: [u32; 256] = crc32_table();
-    crc = !crc;
-    for &byte in data {
-        crc = (crc >> 8) ^ TABLE[((crc ^ u32::from(byte)) & 0xff) as usize];
-    }
-    !crc
+fn crc32(crc: u32, data: &[u8]) -> u32 {
+    unsafe { crc32_ffi(crc, data.as_ptr().cast(), data.len()) }
 }
 fn legacy(data: &[u8]) -> u32 {
     let mut c = 0xffff_ffffu32;

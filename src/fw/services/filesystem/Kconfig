@@ -10,6 +10,7 @@ if SERVICE_FILESYSTEM
 
 config PFS_RUST
     bool "Rust PFS implementation"
+    select CRC32_RUST
     help
       Replace the C Pebble filesystem with the transactional Rust implementation.
 

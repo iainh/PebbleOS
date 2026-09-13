@@ -46,6 +46,7 @@ include(extensions)
 include(pbl_test)
 
 if(CONFIG_PFS_RUST)
+  set(CONFIG_CRC32_RUST ON)
   include(rust)
   pbl_rust_object(pebble_pfs ${PBL_BASE}/src/fw/services/filesystem/pfs-rust pfs_rust_object)
   add_library(test_pfs_rust STATIC ${pfs_rust_object})
