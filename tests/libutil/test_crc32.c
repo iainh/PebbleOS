@@ -26,6 +26,17 @@
 
 static uint32_t crc;
 
+static uint32_t prv_crc32_bitwise(uint32_t value, const uint8_t *data, size_t length) {
+  value ^= UINT32_MAX;
+  while (length--) {
+    value ^= *data++;
+    for (unsigned int bit = 0; bit < 8; ++bit) {
+      value = (value >> 1) ^ ((0u - (value & 1)) & 0xedb88320);
+    }
+  }
+  return value ^ UINT32_MAX;
+}
+
 void test_crc32__initialize(void) {
   crc = crc32(0, NULL, 0);
 }
@@ -62,6 +73,21 @@ void test_crc32__incremental(void) {
   crc = crc32(crc, "12", 2);
   crc = crc32(crc, "3456789", 7);
   assert_equal_hex(crc, 0xCBF43926);
+}
+
+void test_crc32__unaligned_and_tail_lengths(void) {
+  uint8_t data[67];
+  for (size_t i = 0; i < sizeof(data); ++i) {
+    data[i] = (uint8_t)(i * 37 + 11);
+  }
+
+  for (size_t offset = 0; offset < 4; ++offset) {
+    for (size_t length = 0; length <= 63; ++length) {
+      const uint32_t initial = 0x12345678;
+      assert_equal_hex(crc32(initial, data + offset, length),
+                       prv_crc32_bitwise(initial, data + offset, length));
+    }
+  }
 }
 
 void test_crc32__residue(void) {
