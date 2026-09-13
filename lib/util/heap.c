@@ -6,6 +6,7 @@
 #include "pbl/util/assert.h"
 #include "pbl/util/math.h"
 #include "pbl/util/logging.h"
+#include "pbl/util/size.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -17,13 +18,12 @@ typedef unsigned long Alignment_t;
 
 /* The following defines the byte boundary size that has been        */
 /* specified size if the alignment data.                             */
-#define ALIGNMENT_SIZE          sizeof(Alignment_t)
+#define ALIGNMENT_SIZE sizeof(Alignment_t)
 
 /* The following structure is used to align data fragments on a      */
 /* specified memory boundary.                                        */
-typedef union _tagAlignmentStruct_t
-{
-  Alignment_t   AlignmentValue;
+typedef union _tagAlignmentStruct_t {
+  Alignment_t AlignmentValue;
   unsigned char ByteValue;
 } AlignmentStruct_t;
 
@@ -31,10 +31,10 @@ typedef union _tagAlignmentStruct_t
 /* considered a large value.  Allocations that are equal to and      */
 /* larger than this value will be allocated from the end of the      */
 /* buffer.                                                           */
-#define LARGE_SIZE              (256/ALIGNMENT_SIZE)
+#define LARGE_SIZE (256 / ALIGNMENT_SIZE)
 
 //! The maximum size of the heap as a number of ALIGNMENT_SIZE
-#define SEGMENT_SIZE_MAX      (0x7FFF)
+#define SEGMENT_SIZE_MAX (0x7FFF)
 
 /* The following defines the minimum size (in alignment units) of a  */
 /* fragment that is considered useful.  The value is used when trying*/
@@ -42,23 +42,24 @@ typedef union _tagAlignmentStruct_t
 /* can be broken into 2 fragments leaving a fragment that is of the  */
 /* requested size and one that is at least as larger as the          */
 /* MINIMUM_MEMORY_SIZE.                                              */
-#define MINIMUM_MEMORY_SIZE     1
+#define MINIMUM_MEMORY_SIZE 1
 
 /* The following defines the structure that describes a memory       */
 /* fragment.                                                         */
-typedef struct _tagHeapInfo_t
-{
-  //! Size of the preceding segment, measured in units of ALIGNMENT_SIZE, including the size of this beginner
+typedef struct _tagHeapInfo_t {
+  //! Size of the preceding segment, measured in units of ALIGNMENT_SIZE, including the size of this
+  //! beginner
   uint16_t PrevSize;
 
   //! Whether or not this block is currently allocated (vs being free).
-  bool is_allocated:1;
+  bool is_allocated : 1;
 
-  //! Size of this segment, measured in units of ALIGNMENT_SIZE, including this size of this beginner
-  uint16_t Size:15;
+  //! Size of this segment, measured in units of ALIGNMENT_SIZE, including this size of this
+  //! beginner
+  uint16_t Size : 15;
 
 #ifdef CONFIG_MALLOC_INSTRUMENTATION
-  uintptr_t pc; //<! The address that called malloc.
+  uintptr_t pc;  //<! The address that called malloc.
 #endif
 
   //! This is the actual buffer that's returned to the caller. We use this struct to make
@@ -66,8 +67,8 @@ typedef struct _tagHeapInfo_t
   AlignmentStruct_t Data;
 } HeapInfo_t;
 
-
-//! The size of a block in units of Alignment_t, including the beginner and including _x words of data.
+//! The size of a block in units of Alignment_t, including the beginner and including _x words of
+//! data.
 #define HEAP_INFO_BLOCK_SIZE(_x) ((offsetof(HeapInfo_t, Data) / ALIGNMENT_SIZE) + (_x))
 
 //! Convert a pointer to the Data member to a pointer to the HeapInfo_t beginner
@@ -75,19 +76,26 @@ typedef struct _tagHeapInfo_t
 
 _Static_assert((offsetof(HeapInfo_t, Data) % ALIGNMENT_SIZE) == 0, "Heap not properly aligned.");
 
+#ifdef CONFIG_HEAP_REALLOC_RUST
+extern uint16_t heap_realloc_plan(uint16_t current_units, uint16_t next_free_units,
+                                  uint16_t requested_units, uint16_t minimum_free_units);
+#endif
+
 //! Heap is assumed corrupt if expr does not evaluate true
 #define HEAP_ASSERT_SANE(heap, expr, log_addr) \
-            if (!(expr)) { prv_handle_corruption(heap, log_addr); }
+  if (!(expr)) {                               \
+    prv_handle_corruption(heap, log_addr);     \
+  }
 
 //! Lock the heap, using whatever behaviour the heap has configured using heap_set_lock_impl
-static void heap_lock(Heap* heap) {
+static void heap_lock(Heap *heap) {
   if (heap->lock_impl.lock_function) {
     heap->lock_impl.lock_function(heap->lock_impl.lock_context);
   }
 }
 
 //! Unlock the heap, using whatever behaviour the heap has configured using heap_set_lock_impl
-static void heap_unlock(Heap* heap) {
+static void heap_unlock(Heap *heap) {
   if (heap->lock_impl.unlock_function) {
     heap->lock_impl.unlock_function(heap->lock_impl.lock_context);
   }
@@ -99,45 +107,47 @@ static void heap_unlock(Heap* heap) {
   }
 }
 
-static void prv_handle_corruption(Heap * const heap, void *ptr) {
+static void prv_handle_corruption(Heap *const heap, void *ptr) {
   if (heap->corruption_handler) {
     heap->corrupt_block = ptr;
     return;
   }
-  UTIL_ASSERT(0); // Error: Heap corrupt around <ptr>
+  UTIL_ASSERT(0);  // Error: Heap corrupt around <ptr>
 }
 
-static HeapInfo_t *find_segment(Heap* const heap, unsigned long n_units);
-static HeapInfo_t *allocate_block(Heap* const heap, unsigned long n_units, HeapInfo_t* heap_info_ptr);
+static HeapInfo_t *find_segment(Heap *const heap, unsigned long n_units);
+static HeapInfo_t *allocate_block(Heap *const heap, unsigned long n_units,
+                                  HeapInfo_t *heap_info_ptr);
 
 //! Advance the block pointer to the next block.
-static HeapInfo_t* get_next_block(Heap * const heap, HeapInfo_t* block) {
+static HeapInfo_t *get_next_block(Heap *const heap, HeapInfo_t *block) {
   HEAP_ASSERT_SANE(heap, block->Size != 0, block);
   return (HeapInfo_t *)(((Alignment_t *)block) + block->Size);
 }
 
 //! Move the block pointer back to the previous block.
-static HeapInfo_t* get_previous_block(Heap * const heap, HeapInfo_t* block) {
+static HeapInfo_t *get_previous_block(Heap *const heap, HeapInfo_t *block) {
   HEAP_ASSERT_SANE(heap, block->PrevSize != 0, block);
   return (HeapInfo_t *)(((Alignment_t *)block) - block->PrevSize);
 }
 
-static void prv_calc_totals(Heap* const heap, unsigned int *used, unsigned int *free, unsigned int *max_free) {
-  HeapInfo_t    *heap_info_ptr;
-  uint16_t      free_segments;
-  uint16_t      alloc_segments;
+static void prv_calc_totals(Heap *const heap, unsigned int *used, unsigned int *free,
+                            unsigned int *max_free) {
+  HeapInfo_t *heap_info_ptr;
+  uint16_t free_segments;
+  uint16_t alloc_segments;
 
   /* Initialize the return values.                                  */
-  *used         = 0;
-  *free         = 0;
-  *max_free      = 0;
-  free_segments  = 0;
+  *used = 0;
+  *free = 0;
+  *max_free = 0;
+  free_segments = 0;
   alloc_segments = 0;
-  heap_info_ptr   = heap->begin;
+  heap_info_ptr = heap->begin;
 
   do {
     /* Check to see if the current fragment is marked as free.     */
-    if(heap_info_ptr->is_allocated) {
+    if (heap_info_ptr->is_allocated) {
       alloc_segments++;
 
       *used += heap_info_ptr->Size * ALIGNMENT_SIZE;
@@ -149,7 +159,7 @@ static void prv_calc_totals(Heap* const heap, unsigned int *used, unsigned int *
 
       /* Check to see if the current fragment is larger that any  */
       /* we have seen and update the Max Value if it is larger.   */
-      if(heap_info_ptr->Size > *max_free) {
+      if (heap_info_ptr->Size > *max_free) {
         *max_free = heap_info_ptr->Size * ALIGNMENT_SIZE;
       }
     }
@@ -167,44 +177,37 @@ static void prv_calc_totals(Heap* const heap, unsigned int *used, unsigned int *
   util_dbgserial_str(format_str);
 }
 
-void heap_calc_totals(Heap* const heap, unsigned int *used, unsigned int *free, unsigned int *max_free) {
+void heap_calc_totals(Heap *const heap, unsigned int *used, unsigned int *free,
+                      unsigned int *max_free) {
   UTIL_ASSERT(heap);
 
   /* Verify that the parameters that were passed in appear valid.      */
-  if((used) && (free) && (max_free) && (heap->begin)) {
+  if ((used) && (free) && (max_free) && (heap->begin)) {
     heap_lock(heap);
     prv_calc_totals(heap, used, free, max_free);
     heap_unlock(heap);
   }
 }
 
-void heap_init(Heap* const heap, void* start, void* end, bool fuzz_on_free) {
+void heap_init(Heap *const heap, void *start, void *end, bool fuzz_on_free) {
   UTIL_ASSERT(start && end);
 
   // Align the pointer by advancing it to the next boundary.
-  start = (void*)((((uintptr_t) start) + (sizeof(Alignment_t) - 1)) & ~(sizeof(Alignment_t) - 1));
-  end = (void*) (((uintptr_t) end) & ~(sizeof(Alignment_t) - 1));
+  start = (void *)((((uintptr_t)start) + (sizeof(Alignment_t) - 1)) & ~(sizeof(Alignment_t) - 1));
+  end = (void *)(((uintptr_t)end) & ~(sizeof(Alignment_t) - 1));
 
   // Calculate the size of the heap in alignment units.
   uint32_t heap_size = ((uintptr_t)end - (uintptr_t)start) / ALIGNMENT_SIZE;
   // If we have more space than we can use, just limit it to the usable space. This limit is caused
   // by the width of .Size and .PrevSize in HeapInfo_t
   heap_size = MIN(SEGMENT_SIZE_MAX, heap_size);
-  end = ((char*) start) + (heap_size * ALIGNMENT_SIZE);
+  end = ((char *)start) + (heap_size * ALIGNMENT_SIZE);
 
   memset(start, 0, heap_size * ALIGNMENT_SIZE);
 
-  *heap = (Heap) {
-    .begin = start,
-    .end = end,
-    .fuzz_on_free = fuzz_on_free
-  };
+  *heap = (Heap){.begin = start, .end = end, .fuzz_on_free = fuzz_on_free};
 
-  *(heap->begin) = (HeapInfo_t) {
-    .PrevSize = heap_size,
-    .is_allocated = false,
-    .Size = heap_size
-  };
+  *(heap->begin) = (HeapInfo_t){.PrevSize = heap_size, .is_allocated = false, .Size = heap_size};
 }
 
 void heap_set_lock_impl(Heap *heap, HeapLockImpl lock_impl) {
@@ -219,7 +222,7 @@ void heap_set_corruption_handler(Heap *heap, CorruptionHandler corruption_handle
   heap->corruption_handler = corruption_handler;
 }
 
-void *heap_malloc(Heap* const heap, unsigned long nbytes, uintptr_t client_pc) {
+void *heap_malloc(Heap *const heap, unsigned long nbytes, uintptr_t client_pc) {
   // Check to make sure the heap we have is initialized.
   UTIL_ASSERT(heap->begin);
 
@@ -235,11 +238,11 @@ void *heap_malloc(Heap* const heap, unsigned long nbytes, uintptr_t client_pc) {
     return NULL;
   }
 
-  HeapInfo_t* allocated_block;
+  HeapInfo_t *allocated_block;
 
   heap_lock(heap);
   {
-    HeapInfo_t* free_block = find_segment(heap, allocation_size);
+    HeapInfo_t *free_block = find_segment(heap, allocation_size);
     allocated_block = allocate_block(heap, allocation_size, free_block);
 
     if (allocated_block != NULL) {
@@ -263,7 +266,7 @@ void *heap_malloc(Heap* const heap, unsigned long nbytes, uintptr_t client_pc) {
   return NULL;
 }
 
-void heap_free(Heap* const heap, void *ptr, uintptr_t client_pc) {
+void heap_free(Heap *const heap, void *ptr, uintptr_t client_pc) {
   UTIL_ASSERT(heap->begin);
 
   if (!ptr) {
@@ -271,7 +274,7 @@ void heap_free(Heap* const heap, void *ptr, uintptr_t client_pc) {
     return;
   }
 
-  UTIL_ASSERT(heap_contains_address(heap, ptr)); // <ptr> not in range (heap->begin, heap->end)
+  UTIL_ASSERT(heap_contains_address(heap, ptr));  // <ptr> not in range (heap->begin, heap->end)
 
   heap_lock(heap);
   {
@@ -290,7 +293,7 @@ void heap_free(Heap* const heap, void *ptr, uintptr_t client_pc) {
         return;
       }
 
-      UTIL_ASSERT(0); // heap_free on invalid pointer <ptr>
+      UTIL_ASSERT(0);  // heap_free on invalid pointer <ptr>
     }
 
     /* Mask out the allocation bit of the segment to be freed.  */
@@ -299,8 +302,7 @@ void heap_free(Heap* const heap, void *ptr, uintptr_t client_pc) {
 
 #ifndef CONFIG_RELEASE
     if (heap->fuzz_on_free) {
-      memset(ptr, 0xBD,
-             (heap_info_ptr->Size - HEAP_INFO_BLOCK_SIZE(0)) * ALIGNMENT_SIZE);
+      memset(ptr, 0xBD, (heap_info_ptr->Size - HEAP_INFO_BLOCK_SIZE(0)) * ALIGNMENT_SIZE);
     }
 #endif
 
@@ -314,14 +316,14 @@ void heap_free(Heap* const heap, void *ptr, uintptr_t client_pc) {
     /* then we do not have to merge or update any sizes of the  */
     /* previous segment.  This will also handle the case where  */
     /* the entire heap has been allocated to one segment.       */
-    if(heap_info_ptr != heap->begin) {
+    if (heap_info_ptr != heap->begin) {
       /* Calculate the pointer to the previous segment.        */
       HeapInfo_t *previous_block = get_previous_block(heap, heap_info_ptr);
 
       HEAP_ASSERT_SANE(heap, previous_block->Size == heap_info_ptr->PrevSize, heap_info_ptr);
 
       /* Check to see if the previous segment can be combined. */
-      if(!previous_block->is_allocated) {
+      if (!previous_block->is_allocated) {
         /* Add the segment to be freed to the new beginner.     */
         previous_block->Size += heap_info_ptr->Size;
 
@@ -336,12 +338,11 @@ void heap_free(Heap* const heap, void *ptr, uintptr_t client_pc) {
 
     /* If we are pointing at the end of the heap, then use the  */
     /* begin as the next segment.                                */
-    if(next_block == heap->end) {
+    if (next_block == heap->end) {
       /* We can't combine the begin with the end, so just      */
       /* update the PrevSize field.                            */
       heap->begin->PrevSize = heap_info_ptr->Size;
-    }
-    else {
+    } else {
       HEAP_ASSERT_SANE(heap, next_block->PrevSize == (HEAP_INFO_FOR_PTR(ptr))->Size, next_block);
 
       /* We are not pointing to the end of the heap, so if the */
@@ -360,10 +361,9 @@ void heap_free(Heap* const heap, void *ptr, uintptr_t client_pc) {
 
         /* If we are pointing at the end of the heap, then use*/
         /* the begin as the next next segment.                 */
-        if(next_next_block == heap->end) {
+        if (next_next_block == heap->end) {
           heap->begin->PrevSize = heap_info_ptr->Size;
-        }
-        else {
+        } else {
           next_next_block->PrevSize = heap_info_ptr->Size;
         }
       }
@@ -372,7 +372,7 @@ void heap_free(Heap* const heap, void *ptr, uintptr_t client_pc) {
   heap_unlock(heap);
 }
 
-bool heap_is_allocated(Heap* const heap, void* ptr) {
+bool heap_is_allocated(Heap *const heap, void *ptr) {
   bool rc = false;
   if (!heap_contains_address(heap, ptr)) {
     return rc;
@@ -394,26 +394,25 @@ bool heap_is_allocated(Heap* const heap, void* ptr) {
   return rc;
 }
 
-bool heap_contains_address(Heap* const heap, void* ptr) {
-  return (ptr >= (void*) heap->begin && ptr < (void*) heap->end);
+bool heap_contains_address(Heap *const heap, void *ptr) {
+  return (ptr >= (void *)heap->begin && ptr < (void *)heap->end);
 }
 
 size_t heap_size(const Heap *heap) {
-  return ((char*) heap->end) - ((char*) heap->begin);
+  return ((char *)heap->end) - ((char *)heap->begin);
 }
 
-static void prv_sanity_check_block(Heap * const heap, HeapInfo_t *block) {
-  HeapInfo_t* prev_block = get_previous_block(heap, block);
-  HEAP_ASSERT_SANE(heap,
-      prev_block <= heap->begin || prev_block->Size == block->PrevSize, block);
-  HeapInfo_t* next_block = get_next_block(heap, block);
+static void prv_sanity_check_block(Heap *const heap, HeapInfo_t *block) {
+  HeapInfo_t *prev_block = get_previous_block(heap, block);
+  HEAP_ASSERT_SANE(heap, prev_block <= heap->begin || prev_block->Size == block->PrevSize, block);
+  HeapInfo_t *next_block = get_next_block(heap, block);
   HEAP_ASSERT_SANE(heap, next_block >= heap->end || next_block->PrevSize == block->Size, block);
 }
 
 //! Finds a segment where data of the size n_units  will fit.
 //!     @param heap the heap to search.
 //!     @param n_units number of ALIGNMENT_SIZE units this segment requires.
-static HeapInfo_t *find_segment(Heap* const heap, unsigned long n_units) {
+static HeapInfo_t *find_segment(Heap *const heap, unsigned long n_units) {
   HeapInfo_t *heap_info_ptr = NULL;
   /* If we are allocating a large segment, then start at the  */
   /* end of the heap.  Otherwise, start at the beginning of   */
@@ -427,7 +426,6 @@ static HeapInfo_t *find_segment(Heap* const heap, unsigned long n_units) {
 
   /* Loop until we have walked the entire list.               */
   while (((n_units < LARGE_SIZE) || (heap_info_ptr > heap->begin)) && (heap_info_ptr < heap->end)) {
-
     prv_sanity_check_block(heap, heap_info_ptr);
 
     /* Check to see if the current entry is free and is large*/
@@ -448,8 +446,7 @@ static HeapInfo_t *find_segment(Heap* const heap, unsigned long n_units) {
   }
 
   // make sure the space we found is within the bounds of the heap
-  UTIL_ASSERT((heap_info_ptr >= heap->begin) &&
-      (heap_info_ptr <= heap->end));
+  UTIL_ASSERT((heap_info_ptr >= heap->begin) && (heap_info_ptr <= heap->end));
 
   return heap_info_ptr;
 }
@@ -459,9 +456,10 @@ static HeapInfo_t *find_segment(Heap* const heap, unsigned long n_units) {
 //! Assumes the block is big enough to be split and is unallocated.
 //! @param heap the heap the block belongs to.
 //! @param block the block to split.
-//! @param first_part_size the size of the new block, in ALIGNMENT_SIZE units, including the beginner
-static HeapInfo_t* split_block(Heap *heap, HeapInfo_t* block, size_t first_part_size) {
-  HeapInfo_t* second_block = (HeapInfo_t*) (((Alignment_t*) block) + first_part_size);
+//! @param first_part_size the size of the new block, in ALIGNMENT_SIZE units, including the
+//! beginner
+static HeapInfo_t *split_block(Heap *heap, HeapInfo_t *block, size_t first_part_size) {
+  HeapInfo_t *second_block = (HeapInfo_t *)(((Alignment_t *)block) + first_part_size);
 
   second_block->PrevSize = first_part_size;
   second_block->is_allocated = false;
@@ -470,7 +468,7 @@ static HeapInfo_t* split_block(Heap *heap, HeapInfo_t* block, size_t first_part_
   block->Size = first_part_size;
 
   /* Calculate the pointer to the next segment.         */
-  HeapInfo_t* next_next_block = get_next_block(heap, second_block);
+  HeapInfo_t *next_next_block = get_next_block(heap, second_block);
 
   /* Check for a wrap condition and update the next     */
   /* segment's PrevSize field.                          */
@@ -485,9 +483,11 @@ static HeapInfo_t* split_block(Heap *heap, HeapInfo_t* block, size_t first_part_
 
 //! Allocated the block in the given HeapInfo_t segment.
 //!     @param heap the heap to allocate from.
-//!     @param n_units number of ALIGNMENT_SIZE units this segment requires (including space for the beginner).
+//!     @param n_units number of ALIGNMENT_SIZE units this segment requires (including space for the
+//!     beginner).
 //!     @param heap_info_ptr the segment where the block should be allocated.
-static HeapInfo_t *allocate_block(Heap* const heap, unsigned long n_units, HeapInfo_t* heap_info_ptr) {
+static HeapInfo_t *allocate_block(Heap *const heap, unsigned long n_units,
+                                  HeapInfo_t *heap_info_ptr) {
   // Make sure we can use all or part of this block for this allocation.
   if (heap_info_ptr == heap->end || heap_info_ptr->is_allocated || heap_info_ptr->Size < n_units) {
     return NULL;
@@ -518,24 +518,103 @@ static HeapInfo_t *allocate_block(Heap* const heap, unsigned long n_units, HeapI
   return heap_info_ptr;
 }
 
-// A very naive realloc implementation
-void* heap_realloc(Heap* const heap, void *ptr, unsigned long nbytes, uintptr_t client_pc) {
+#ifdef CONFIG_HEAP_REALLOC_RUST
+static bool prv_realloc_in_place(Heap *heap, void *ptr, uint16_t requested_units,
+                                 uintptr_t client_pc) {
+  bool resized = false;
+
+  heap_lock(heap);
+  {
+    HeapInfo_t *block = HEAP_INFO_FOR_PTR(ptr);
+    HEAP_ASSERT_SANE(heap, block->is_allocated, block);
+    prv_sanity_check_block(heap, block);
+
+    const uint16_t old_units = block->Size;
+    HeapInfo_t *next = get_next_block(heap, block);
+    const uint16_t next_free_units = (next < heap->end && !next->is_allocated) ? next->Size : 0;
+    const uint16_t retained_units = heap_realloc_plan(old_units, next_free_units, requested_units,
+                                                      HEAP_INFO_BLOCK_SIZE(MINIMUM_MEMORY_SIZE));
+
+    if (retained_units != 0) {
+      const uint16_t extent_units = old_units + next_free_units;
+      const uint16_t remainder_units = extent_units - retained_units;
+
+#ifndef CONFIG_RELEASE
+      if (heap->fuzz_on_free && retained_units < old_units) {
+        memset(((Alignment_t *)block) + retained_units, 0xBD,
+               (old_units - retained_units) * ALIGNMENT_SIZE);
+      }
+#endif
+
+      block->Size = retained_units;
+      if (remainder_units != 0) {
+        HeapInfo_t *remainder = (HeapInfo_t *)(((Alignment_t *)block) + retained_units);
+        remainder->PrevSize = retained_units;
+        remainder->is_allocated = false;
+        remainder->Size = remainder_units;
+
+        HeapInfo_t *successor = get_next_block(heap, remainder);
+        if (successor == heap->end) {
+          heap->begin->PrevSize = remainder_units;
+        } else {
+          successor->PrevSize = remainder_units;
+        }
+      } else {
+        HeapInfo_t *successor = get_next_block(heap, block);
+        if (successor == heap->end) {
+          heap->begin->PrevSize = retained_units;
+        } else {
+          successor->PrevSize = retained_units;
+        }
+      }
+
+      heap->current_size -= old_units * ALIGNMENT_SIZE;
+      heap->current_size += retained_units * ALIGNMENT_SIZE;
+      if (heap->current_size > heap->high_water_mark) {
+        heap->high_water_mark = heap->current_size;
+      }
+#ifdef CONFIG_MALLOC_INSTRUMENTATION
+      block->pc = client_pc;
+#endif
+      resized = true;
+    }
+  }
+  heap_unlock(heap);
+
+  return resized;
+}
+#endif
+
+void *heap_realloc(Heap *const heap, void *ptr, unsigned long nbytes, uintptr_t client_pc) {
 #if !defined(CONFIG_MALLOC_INSTRUMENTATION)
   client_pc = 0;
 #endif
+
+#ifdef CONFIG_HEAP_REALLOC_RUST
+  if (ptr) {
+    UTIL_ASSERT(heap_contains_address(heap, ptr));
+    const unsigned long payload_units = (nbytes + (ALIGNMENT_SIZE - 1)) / ALIGNMENT_SIZE;
+    const unsigned long requested_units = payload_units + HEAP_INFO_BLOCK_SIZE(0);
+    if (requested_units >= HEAP_INFO_BLOCK_SIZE(1) && requested_units < SEGMENT_SIZE_MAX &&
+        prv_realloc_in_place(heap, ptr, requested_units, client_pc)) {
+      return ptr;
+    }
+  }
+#endif
+
   // Get a pointer to the Heap Info.
   void *new_ptr = heap_malloc(heap, nbytes, client_pc);
   if (new_ptr && ptr) {
     // Copy over old data.
     const HeapInfo_t *heap_info_ptr = HEAP_INFO_FOR_PTR(ptr);
-    const uint16_t original_size = heap_info_ptr->Size * ALIGNMENT_SIZE;
+    const uint16_t original_size = (heap_info_ptr->Size - HEAP_INFO_BLOCK_SIZE(0)) * ALIGNMENT_SIZE;
     memcpy(new_ptr, ptr, MIN(nbytes, original_size));
     heap_free(heap, ptr, client_pc);
   }
   return new_ptr;
 }
 
-void* heap_zalloc(Heap* const heap, size_t size, uintptr_t client_pc) {
+void *heap_zalloc(Heap *const heap, size_t size, uintptr_t client_pc) {
   void *ptr = heap_malloc(heap, size, client_pc);
   if (ptr) {
     memset(ptr, 0, size);
@@ -543,13 +622,69 @@ void* heap_zalloc(Heap* const heap, size_t size, uintptr_t client_pc) {
   return ptr;
 }
 
-void* heap_calloc(Heap* const heap, size_t count, size_t size, uintptr_t client_pc) {
+void *heap_calloc(Heap *const heap, size_t count, size_t size, uintptr_t client_pc) {
   return heap_zalloc(heap, count * size, client_pc);
 }
 
 uint32_t heap_get_minimum_headroom(Heap *heap) {
   return (heap_size(heap) - heap->high_water_mark);
 }
+
+#ifdef CONFIG_PERFORMANCE_TESTS
+
+#include "pbl/drivers/rtc.h"
+
+#define HEAP_BENCHMARK_CYCLES 2048
+#define HEAP_BENCHMARK_SMALL_SIZE 64
+#define HEAP_BENCHMARK_LARGE_SIZE 512
+#define HEAP_BENCHMARK_EXPECTED_CHECKSUM 904026885u
+
+static Alignment_t s_benchmark_heap_space[4096];
+
+RtcTicks heap_allocator_benchmark(uint32_t *checksum_out, uint32_t *stable_reallocs_out) {
+  Heap heap;
+  heap_init(&heap, s_benchmark_heap_space,
+            s_benchmark_heap_space + ARRAY_LENGTH(s_benchmark_heap_space), false);
+
+  uint8_t *ptr = heap_malloc(&heap, HEAP_BENCHMARK_SMALL_SIZE, 0);
+  UTIL_ASSERT(ptr);
+  for (size_t i = 0; i < HEAP_BENCHMARK_SMALL_SIZE; ++i) {
+    ptr[i] = (i * 37) + 11;
+  }
+
+  uint32_t stable_reallocs = 0;
+  const RtcTicks start = rtc_get_ticks();
+  for (size_t cycle = 0; cycle < HEAP_BENCHMARK_CYCLES; ++cycle) {
+    uint8_t *previous = ptr;
+    ptr = heap_realloc(&heap, ptr, HEAP_BENCHMARK_LARGE_SIZE, 0);
+    UTIL_ASSERT(ptr);
+    stable_reallocs += (ptr == previous);
+    UTIL_ASSERT(ptr[0] == 11 && ptr[31] == 134 && ptr[63] == 38);
+
+    previous = ptr;
+    ptr = heap_realloc(&heap, ptr, HEAP_BENCHMARK_SMALL_SIZE, 0);
+    UTIL_ASSERT(ptr);
+    stable_reallocs += (ptr == previous);
+    UTIL_ASSERT(ptr[0] == 11 && ptr[31] == 134 && ptr[63] == 38);
+  }
+  const RtcTicks elapsed = rtc_get_ticks() - start;
+
+  uint32_t checksum = 2166136261u;
+  for (size_t i = 0; i < HEAP_BENCHMARK_SMALL_SIZE; ++i) {
+    checksum = (checksum ^ ptr[i]) * 16777619u;
+  }
+  heap_free(&heap, ptr, 0);
+  UTIL_ASSERT(heap.current_size == 0);
+  UTIL_ASSERT(heap.begin->Size == ARRAY_LENGTH(s_benchmark_heap_space));
+  UTIL_ASSERT(!heap.begin->is_allocated && get_next_block(&heap, heap.begin) == heap.end);
+  UTIL_ASSERT(checksum == HEAP_BENCHMARK_EXPECTED_CHECKSUM);
+
+  *checksum_out = checksum;
+  *stable_reallocs_out = stable_reallocs;
+  return elapsed;
+}
+
+#endif
 
 // Serial Commands
 ///////////////////////////////////////////////////////////
@@ -565,11 +700,11 @@ void heap_dump_malloc_instrumentation_to_dbgserial(Heap *heap) {
   // The output in this function is parsed by tools/parse_dump_malloc.py, so don't change it
   // without updating that file as well.
 
-  HeapInfo_t* heap_iter = heap->begin;
+  HeapInfo_t *heap_iter = heap->begin;
 
   heap_lock(heap);
-  void* pc;
-  char* type;
+  void *pc;
+  char *type;
   while (heap_iter < heap->end) {
     unsigned long block_size = (long)(heap_iter->Size) * ALIGNMENT_SIZE;
 
@@ -586,8 +721,8 @@ void heap_dump_malloc_instrumentation_to_dbgserial(Heap *heap) {
       largest_free = MAX(largest_free, block_size);
     }
 
-    snprintf(buffer, sizeof(buffer), "PC:0x%08lX Addr:0x%08lX Bytes:%-8lu %s",
-                         (long)pc, (long)&heap_iter->Data, block_size, type);
+    snprintf(buffer, sizeof(buffer), "PC:0x%08lX Addr:0x%08lX Bytes:%-8lu %s", (long)pc,
+             (long)&heap_iter->Data, block_size, type);
     util_dbgserial_str(buffer);
     heap_iter = get_next_block(heap, heap_iter);
   }
@@ -619,6 +754,5 @@ void heap_dump_malloc_instrumentation_to_dbgserial(Heap *heap) {
   util_dbgserial_str(buffer);
 
   heap_unlock(heap);
-
 }
 #endif

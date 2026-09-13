@@ -37,6 +37,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(pebbleos-tests LANGUAGES C)
 
 option(GLYPH_RASTER_BENCHMARK "Build the optimized host glyph benchmark" OFF)
+option(CONFIG_HEAP_REALLOC_RUST "Build the Rust heap realloc planner" OFF)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
@@ -72,6 +73,9 @@ set(PBL_TEST_DEFINES
 )
 if(CONFIG_BITBLT_PALETTE_RUST)
   list(APPEND PBL_TEST_DEFINES CONFIG_BITBLT_PALETTE_RUST=1)
+endif()
+if(CONFIG_HEAP_REALLOC_RUST)
+  list(APPEND PBL_TEST_DEFINES CONFIG_HEAP_REALLOC_RUST=1)
 endif()
 add_compile_definitions(${PBL_TEST_DEFINES})
 

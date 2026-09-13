@@ -30,8 +30,16 @@ QUEUE_RESULT_RE = re.compile(
     rb" jobs=(?P<jobs>\d+)"
     rb" probes=(?P<probes>\d+)"
 )
+HEAP_RESULT_RE = re.compile(
+    rb"HEAP_RESULT version=(?P<version>\d+)"
+    rb" total_us=(?P<total_us>\d+)"
+    rb" checksum=(?P<checksum>\d+)"
+    rb" cycles=(?P<cycles>\d+)"
+    rb" stable=(?P<stable>\d+)"
+)
 FIELDS = ("total_us", "storage_us", "dispatch_us", "render_us", "flush_us", "rows")
 QUEUE_INTEGRITY = {"checksum": 4073865016, "jobs": 96, "probes": 2048}
+HEAP_INTEGRITY = {"checksum": 904026885, "cycles": 2048}
 
 
 def _read_until(sock: socket.socket, marker: bytes, timeout: float) -> bytes:
@@ -84,7 +92,7 @@ def main() -> int:
     parser.add_argument("--iterations", type=int, default=20)
     parser.add_argument(
         "--mode",
-        choices=("synthetic", "storage", "damage", "queue"),
+        choices=("synthetic", "storage", "damage", "queue", "heap"),
         default="synthetic",
     )
     parser.add_argument("--host", default="127.0.0.1")
@@ -111,7 +119,10 @@ def main() -> int:
                     f"latency benchmark {args.mode}", timeout=command_timeout
                 )
             ).encode()
-            result_re = QUEUE_RESULT_RE if args.mode == "queue" else RESULT_RE
+            result_re = {
+                "queue": QUEUE_RESULT_RE,
+                "heap": HEAP_RESULT_RE,
+            }.get(args.mode, RESULT_RE)
             match = result_re.search(response)
             if not match:
                 raise RuntimeError(
@@ -120,7 +131,11 @@ def main() -> int:
             fields = (
                 ("total_us", "checksum", "jobs", "probes")
                 if args.mode == "queue"
-                else FIELDS
+                else (
+                    ("total_us", "checksum", "cycles", "stable")
+                    if args.mode == "heap"
+                    else FIELDS
+                )
             )
             result = {field: int(match.group(field)) for field in fields}
             if args.mode == "queue":
@@ -130,15 +145,22 @@ def main() -> int:
                         "queue integrity check failed: "
                         f"expected {QUEUE_INTEGRITY}, got {actual_integrity}"
                     )
+            elif args.mode == "heap":
+                actual_integrity = {field: result[field] for field in HEAP_INTEGRITY}
+                if actual_integrity != HEAP_INTEGRITY:
+                    raise RuntimeError(
+                        "heap integrity check failed: "
+                        f"expected {HEAP_INTEGRITY}, got {actual_integrity}"
+                    )
             results.append(result)
             detail = (
                 f"checksum={result['checksum']}"
-                if args.mode == "queue"
+                if args.mode in ("queue", "heap")
                 else f"rows={result['rows']}"
             )
             print(f"{iteration + 1:02d}: total={result['total_us']} us, {detail}")
 
-            if args.mode not in ("damage", "queue"):
+            if args.mode not in ("damage", "queue", "heap"):
                 # Let the notification transition settle, then dismiss it before the next sample.
                 time.sleep(0.5)
                 _monitor_command(args.monitor, "sendkey left")
@@ -150,7 +172,7 @@ def main() -> int:
         interface.receive_thread.join(timeout=1)
         interface.iostream.close()
 
-    summary_fields = ("total_us",) if args.mode == "queue" else FIELDS
+    summary_fields = ("total_us",) if args.mode in ("queue", "heap") else FIELDS
     report = {
         "schema_version": 1,
         "clock": "firmware RTC; QEMU values are virtual time",

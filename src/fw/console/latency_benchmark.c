@@ -10,6 +10,7 @@
 #include "kernel/pbl_malloc.h"
 #include "pbl/drivers/rtc.h"
 #include "pbl/kernel/irq.h"
+#include "pbl/util/heap.h"
 #include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/notifications/notifications.h"
 #include "pbl/services/notifications/notification_storage.h"
@@ -202,11 +203,20 @@ void command_latency_benchmark(const char *mode) {
     const RtcTicks elapsed = comm_session_send_queue_benchmark(&checksum);
     char buffer[128];
     prompt_send_response_fmt(buffer, sizeof(buffer),
-                             "QUEUE_RESULT version=1 total_us=%" PRIu64
-                             " checksum=%" PRIu32 " jobs=96 probes=2048",
+                             "QUEUE_RESULT version=1 total_us=%" PRIu64 " checksum=%" PRIu32
+                             " jobs=96 probes=2048",
                              prv_ticks_to_us(elapsed), checksum);
+  } else if (strcmp(mode, "heap") == 0) {
+    uint32_t checksum;
+    uint32_t stable_reallocs;
+    const RtcTicks elapsed = heap_allocator_benchmark(&checksum, &stable_reallocs);
+    char buffer[128];
+    prompt_send_response_fmt(buffer, sizeof(buffer),
+                             "HEAP_RESULT version=1 total_us=%" PRIu64 " checksum=%" PRIu32
+                             " cycles=2048 stable=%" PRIu32,
+                             prv_ticks_to_us(elapsed), checksum, stable_reallocs);
   } else {
-    prompt_send_response("Usage: latency benchmark synthetic|storage|arm|damage|queue");
+    prompt_send_response("Usage: latency benchmark synthetic|storage|arm|damage|queue|heap");
   }
 }
 

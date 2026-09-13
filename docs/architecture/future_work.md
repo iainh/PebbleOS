@@ -122,6 +122,20 @@ growth before changing call sites. The replacement must preserve coalescing,
 instrumentation, task-specific heaps and corruption detection. Test fragmented
 and nearly exhausted heaps, not only throughput on an empty heap.
 
+The first implementation is available behind `CONFIG_HEAP_REALLOC_RUST`. A
+small `no_std` Rust planner decides whether the current allocation and its next
+free block can satisfy a resize without moving. C retains ownership of boundary
+tags, locking, free-space coalescing, freed-memory fuzzing, metrics and the
+allocate-copy-free fallback. Shrinks return reusable space immediately; growth
+can consume an adjacent free block; and an unusably small remainder stays in the
+allocation. The fallback now copies only the old payload capacity rather than
+including the block header in its copy bound.
+
+Segregated free lists remain future work. Before replacing the physical-block
+scan, collect allocation-size and fragmentation traces from notification,
+timeline and app-launch workloads. Compare worst-case lookup and peak headroom,
+not only an empty-heap throughput benchmark.
+
 ## Timers
 
 Task timers live in sorted linked lists and timer IDs are found by linear scan.
@@ -244,6 +258,32 @@ cover asymmetric job contents, partial and overlong consumption, cleanup, and
 enqueueing after the queue becomes empty. The workload isolates queue
 operations rather than modelling radio airtime; physical-device testing should
 also measure Bluetooth-lock hold time and end-to-end protocol latency.
+
+Use `heap` mode to resize one allocation from 64 to 512 bytes and back 2,048
+times. Every operation verifies three asymmetric payload sentinels. The final
+checksum covers every retained byte, and firmware asserts that freeing the last
+allocation leaves one fully coalesced free block. Add
+`-DCONFIG_HEAP_REALLOC_RUST=y` when configuring the replacement build:
+
+```shell
+.venv/bin/python tools/run_latency_benchmark.py --mode heap \
+  --iterations 20 --output build/heap-results.json
+```
+
+On `qemu_gabbro`, 20 same-host samples produced:
+
+| Implementation | Total, median | Total, p95 | Stable resizes | Integrity checksum |
+| --- | ---: | ---: | ---: | ---: |
+| Allocate, copy and free | 2,500 µs | 3,000 µs | 0 / 4,096 | 904,026,885 |
+| Rust-planned in-place resize | 2,000 µs | 2,000 µs | 4,096 / 4,096 | 904,026,885 |
+
+In-place resizing reduced median workload time by 20.0% and p95 by 33.3% while
+eliminating every allocation move. QEMU's 1 ms RTC quantization limits timing
+precision, but stable-pointer counts and integrity checks are deterministic.
+Host tests additionally cover shrinking, adjacent growth, fallback movement,
+metrics, payload preservation and complete coalescing. Repeat representative
+notification, timeline and app-launch traces on hardware before enabling this
+option by default.
 
 In an orb, run QEMU as a supervised service rather than a background shell:
 

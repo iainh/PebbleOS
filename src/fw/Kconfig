@@ -81,6 +81,12 @@ config COMM_SESSION_QUEUE_RUST
       Cache communication send queue byte counts in Rust and maintain a tail
       pointer so length queries and appends do not traverse the queue.
 
+config HEAP_REALLOC_RUST
+    bool "Rust heap realloc planner"
+    help
+      Resize heap allocations in place when their current extent or the next
+      free block can satisfy the request.
+
 config SETTINGS_ICONS
     bool "Settings menu icons"
     help
