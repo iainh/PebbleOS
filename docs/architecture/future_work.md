@@ -194,6 +194,14 @@ work, but make performance and energy decisions from physical-device results.
    `src/fw/drivers/touch/cst816/cst816.c` and
    `src/fw/services/touch/touch.c`.
 
+   A Rust decode/event-preparation kernel was rejected. Its 65,536-sample
+   `qemu_emery` workload moved by only half of QEMU's 1 ms clock tick at the
+   median, from 4,500 µs to 4,000 µs, while adding 64 bytes of flash. It did not
+   reduce the dominant I²C transactions, queue posts or render wakeups, so it
+   would not provide a measurable user benefit. A future attempt must batch the
+   physical register read and coalesce move events without dropping touch-down
+   or touch-up transitions.
+
 4. **Accelerometer fan-out and subsampling.** The LSM6DSO can feed batches at
    up to 208 Hz. The accelerometer manager walks a linked subscriber list under
    one mutex, then repeatedly reads and subsamples the shared circular buffer
@@ -205,6 +213,16 @@ work, but make performance and energy decisions from physical-device results.
    CPU time, lock hold time, FIFO overruns and sleep residency. Relevant code:
    `src/fw/drivers/imu/lsm6dso/lsm6dso.c` and
    `src/fw/services/accel_manager/service.c`.
+
+   The first implementation is available behind
+   `CONFIG_SERVICE_ACCEL_MANAGER_RUST_SUBSAMPLING`. A Rust planner selects an
+   entire subscriber batch before C advances the shared-buffer cursor, reducing
+   skip operations while preserving rational phase, first-sample timestamps and
+   callback boundaries. Over 20 same-host `qemu_emery` samples, 16,384 1:5
+   batches improved from a 12,000 µs median and 13,000 µs p95 to 11,000 µs and
+   12,000 µs. The selection checksum matched; the option adds 128 bytes of flash
+   and no static RAM. Physical Emery testing should measure manager mutex hold
+   time and wakeups with multiple simultaneous subscribers.
 
 5. **PFS file and free-page lookup.** Emery's 21 MB filesystem makes linear
    scans more expensive than on smaller platforms. Name lookup checks every

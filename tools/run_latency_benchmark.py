@@ -43,10 +43,17 @@ SCALER_RESULT_RE = re.compile(
     rb" checksum=(?P<checksum>\d+)"
     rb" rows=(?P<rows>\d+)"
 )
+ACCEL_RESULT_RE = re.compile(
+    rb"ACCEL_RESULT version=(?P<version>\d+)"
+    rb" total_us=(?P<total_us>\d+)"
+    rb" checksum=(?P<checksum>\d+)"
+    rb" batches=(?P<batches>\d+)"
+)
 FIELDS = ("total_us", "storage_us", "dispatch_us", "render_us", "flush_us", "rows")
 QUEUE_INTEGRITY = {"checksum": 4073865016, "jobs": 96, "probes": 2048}
 HEAP_INTEGRITY = {"checksum": 904026885, "cycles": 2048}
 SCALER_INTEGRITY = {"checksum": 3412336069, "rows": 4096}
+ACCEL_INTEGRITY = {"checksum": 4213203741, "batches": 16384}
 
 
 def _read_until(sock: socket.socket, marker: bytes, timeout: float) -> bytes:
@@ -99,7 +106,7 @@ def main() -> int:
     parser.add_argument("--iterations", type=int, default=20)
     parser.add_argument(
         "--mode",
-        choices=("synthetic", "storage", "damage", "queue", "heap", "scaler"),
+        choices=("synthetic", "storage", "damage", "queue", "heap", "scaler", "accel"),
         default="synthetic",
     )
     parser.add_argument("--host", default="127.0.0.1")
@@ -130,6 +137,7 @@ def main() -> int:
                 "queue": QUEUE_RESULT_RE,
                 "heap": HEAP_RESULT_RE,
                 "scaler": SCALER_RESULT_RE,
+                "accel": ACCEL_RESULT_RE,
             }.get(args.mode, RESULT_RE)
             match = result_re.search(response)
             if not match:
@@ -145,7 +153,11 @@ def main() -> int:
                     else (
                         ("total_us", "checksum", "rows")
                         if args.mode == "scaler"
-                        else FIELDS
+                        else (
+                            ("total_us", "checksum", "batches")
+                            if args.mode == "accel"
+                            else FIELDS
+                        )
                     )
                 )
             )
@@ -171,15 +183,22 @@ def main() -> int:
                         "scaler integrity check failed: "
                         f"expected {SCALER_INTEGRITY}, got {actual_integrity}"
                     )
+            elif args.mode == "accel":
+                actual_integrity = {field: result[field] for field in ACCEL_INTEGRITY}
+                if actual_integrity != ACCEL_INTEGRITY:
+                    raise RuntimeError(
+                        "accelerometer integrity check failed: "
+                        f"expected {ACCEL_INTEGRITY}, got {actual_integrity}"
+                    )
             results.append(result)
             detail = (
                 f"checksum={result['checksum']}"
-                if args.mode in ("queue", "heap", "scaler")
+                if args.mode in ("queue", "heap", "scaler", "accel")
                 else f"rows={result['rows']}"
             )
             print(f"{iteration + 1:02d}: total={result['total_us']} us, {detail}")
 
-            if args.mode not in ("damage", "queue", "heap", "scaler"):
+            if args.mode not in ("damage", "queue", "heap", "scaler", "accel"):
                 # Let the notification transition settle, then dismiss it before the next sample.
                 time.sleep(0.5)
                 _monitor_command(args.monitor, "sendkey left")
@@ -192,7 +211,9 @@ def main() -> int:
         interface.iostream.close()
 
     summary_fields = (
-        ("total_us",) if args.mode in ("queue", "heap", "scaler") else FIELDS
+        ("total_us",)
+        if args.mode in ("queue", "heap", "scaler", "accel")
+        else FIELDS
     )
     report = {
         "schema_version": 1,

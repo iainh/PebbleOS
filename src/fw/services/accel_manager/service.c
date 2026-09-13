@@ -20,6 +20,7 @@
 #include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/math.h"
+#include "services/accel_manager/subsampling.h"
 #include "util/shared_circular_buffer.h"
 
 #include <inttypes.h>
@@ -272,6 +273,48 @@ static bool prv_call_data_callback(AccelManagerState *state) {
   }
 }
 
+#ifdef CONFIG_SERVICE_ACCEL_MANAGER_RUST_SUBSAMPLING
+static void prv_dispatch_subsampled_rust(AccelManagerState *state, uint16_t capacity) {
+  uint16_t selected[CONFIG_SERVICE_ACCEL_MANAGER_BATCH_SAMPLES];
+  const uint16_t bytes_available = shared_circular_buffer_get_read_space_remaining(
+      &s_buffer, &state->buffer_client.buffer_client);
+  const uint16_t items_available = bytes_available / sizeof(AccelManagerBufferData);
+  const uint32_t plan = accel_subsampling_plan(
+      state->buffer_client.numerator, state->buffer_client.denominator,
+      &state->buffer_client.subsample_state, items_available, selected, capacity);
+  const uint16_t consumed = plan & UINT16_MAX;
+  const uint16_t selected_count = plan >> 16;
+  uint16_t cursor = 0;
+
+  for (uint16_t i = 0; i < selected_count; ++i) {
+    const uint16_t skipped = selected[i] - cursor;
+    if (skipped) {
+      PBL_ASSERTN(shared_circular_buffer_consume(
+          &s_buffer, &state->buffer_client.buffer_client,
+          skipped * sizeof(AccelManagerBufferData)));
+    }
+    AccelManagerBufferData data;
+    uint16_t bytes_out;
+    PBL_ASSERTN(shared_circular_buffer_read_consume(
+        &s_buffer, &state->buffer_client.buffer_client, sizeof(data),
+        (uint8_t *)&data, &bytes_out));
+    PBL_ASSERTN(bytes_out == sizeof(data));
+    if (state->num_samples == 0) {
+      state->timestamp_ms = s_last_empty_timestamp_ms + data.timestamp_delta_ms;
+    }
+    memcpy(state->raw_buffer + state->num_samples, &data, sizeof(AccelRawData));
+    ++state->num_samples;
+    cursor = selected[i] + 1;
+  }
+  const uint16_t trailing = consumed - cursor;
+  if (trailing) {
+    PBL_ASSERTN(shared_circular_buffer_consume(
+        &s_buffer, &state->buffer_client.buffer_client,
+        trailing * sizeof(AccelManagerBufferData)));
+  }
+}
+#endif
+
 //! This is called every time new samples arrive from the accel driver & every
 //! time data has been drained by the accel service. Its responsibility is
 //! populating subscriber storage with new samples (at the requested sample
@@ -298,7 +341,9 @@ static void prv_dispatch_data(bool post_event) {
     }
 
     // If buffer has room, read more data
-    uint32_t samples_drained = 0;
+#ifdef CONFIG_SERVICE_ACCEL_MANAGER_RUST_SUBSAMPLING
+    prv_dispatch_subsampled_rust(state, state->samples_per_update - state->num_samples);
+#else
     while (state->num_samples < state->samples_per_update) {
       // Read available data.
       AccelManagerBufferData data;
@@ -322,8 +367,8 @@ static void prv_dispatch_data(bool post_event) {
       memcpy(state->raw_buffer + state->num_samples, &data,
              sizeof(AccelRawData));
         state->num_samples++;
-        samples_drained++;
     }
+#endif
 
     // If buffer is full, notify subscriber to process it
     if (post_event && !state->event_posted &&
@@ -341,6 +386,34 @@ static void prv_dispatch_data(bool post_event) {
   }
 
   pbl_mutex_unlock(&s_accel_manager_mutex);
+}
+
+uint32_t accel_manager_subsampling_benchmark(uint32_t iterations) {
+  uint32_t checksum = 2166136261u;
+  uint32_t state = 4;
+  uint16_t selected[25];
+  while (iterations--) {
+#ifdef CONFIG_SERVICE_ACCEL_MANAGER_RUST_SUBSAMPLING
+    const uint32_t result = accel_subsampling_plan(1, 5, &state, 125, selected, 25);
+#else
+    uint16_t consumed = 0;
+    uint16_t count = 0;
+    while (consumed < 125 && count < 25) {
+      state += 1;
+      if (state >= 5) {
+        state %= 5;
+        selected[count++] = consumed;
+      }
+      ++consumed;
+    }
+    const uint32_t result = consumed | ((uint32_t)count << 16);
+#endif
+    checksum = (checksum ^ result) * 16777619u;
+    for (uint16_t i = 0; i < (result >> 16); ++i) {
+      checksum = (checksum ^ selected[i]) * 16777619u;
+    }
+  }
+  return checksum ^ state;
 }
 
 // Compute and return the device's delta position to help determine movement as idle.

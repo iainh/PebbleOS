@@ -19,6 +19,7 @@
 #include "pbl/services/compositor/compositor_display.h"
 #include "services/compositor/legacy_scaler.h"
 #include "pbl/services/comm_session/session_send_queue.h"
+#include "services/accel_manager/subsampling.h"
 #include "pbl/services/system_task.h"
 #include "pbl/services/timeline/timeline.h"
 #include "pbl/util/uuid.h"
@@ -225,8 +226,18 @@ void command_latency_benchmark(const char *mode) {
                              "SCALER_RESULT version=1 total_us=%" PRIu64 " checksum=%" PRIu32
                              " rows=4096",
                              prv_ticks_to_us(elapsed), checksum);
+  } else if (strcmp(mode, "accel") == 0) {
+    const RtcTicks start = rtc_get_ticks();
+    const uint32_t checksum = accel_manager_subsampling_benchmark(16384);
+    const RtcTicks elapsed = rtc_get_ticks() - start;
+    char buffer[112];
+    prompt_send_response_fmt(buffer, sizeof(buffer),
+                             "ACCEL_RESULT version=1 total_us=%" PRIu64 " checksum=%" PRIu32
+                             " batches=16384",
+                             prv_ticks_to_us(elapsed), checksum);
   } else {
-    prompt_send_response("Usage: latency benchmark synthetic|storage|arm|damage|queue|heap|scaler");
+    prompt_send_response(
+        "Usage: latency benchmark synthetic|storage|arm|damage|queue|heap|scaler|accel");
   }
 }
 
