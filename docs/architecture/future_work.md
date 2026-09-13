@@ -137,6 +137,71 @@ scan, collect allocation-size and fragmentation traces from notification,
 timeline and app-launch workloads. Compare worst-case lookup and peak headroom,
 not only an empty-heap throughput benchmark.
 
+## Emery hot-path shortlist
+
+This is a ranked static shortlist for the Emery platform, used by Obelix and
+Pebble Time 2. It is not a measured profile. Emery combines a 200×228 8-bit
+display, legacy-app scaling, touch, continuously sampled motion sensors and a
+21 MB PFS region. Instrument these paths on Obelix before treating any item as a
+confirmed hot path. Use `qemu_emery` for repeatable correctness and regression
+work, but make performance and energy decisions from physical-device results.
+
+1. **JDI display conversion and disjoint updates.** The Obelix display driver
+   converts each dirty row from ARGB2222 to RGB332 in place before direct memory
+   access (DMA), then converts it back after transfer. Rotation adds a byte-wise
+   horizontal mirror. This forces one contiguous update region and prevents the
+   compositor's disjoint row tracker from helping on Emery. A bounded Rust
+   state machine could convert damage runs into a small aligned staging buffer,
+   submit several regions and avoid reverse conversion. First benchmark
+   two distant 1×1 changes, full-screen animation and 180° rotation. Compare
+   render-to-end-of-frame latency, converted and transferred rows, cache flush
+   bytes, missed completions and framebuffer hashes. Relevant code:
+   `src/fw/drivers/display/sf32lb/display_jdi.c` and
+   `src/fw/services/compositor/compositor_display.c`.
+
+2. **Legacy-app scaling.** Emery scales 144×168 Basalt applications to its
+   200×228 display. Bilinear mode calculates fixed-point coordinates, samples
+   four pixels and interpolates three colour channels for every output pixel.
+   A Rust kernel could precompute source coordinates and weights for each
+   geometry, cache the two source rows and process packed channels without the
+   inner channel loop. Benchmark exact framebuffer output and cycles per frame
+   for nearest-neighbour, bilinear, timeline peek and clipped updates. Relevant
+   code: `src/fw/services/compositor/compositor.c`.
+
+3. **Touch sampling and event delivery.** CST816 position changes take the I²C
+   lock, then the touch service takes another mutex and posts each changed
+   coordinate to the shared event queue. Dense swipe input can therefore create
+   redundant move events and wakeups ahead of rendering. A fixed-capacity Rust
+   single-producer queue could preserve every touchdown and liftoff while
+   coalescing superseded position updates before the next UI frame. Replay
+   60–120 Hz traces and compare touch-to-frame p50/p99, queue high-water marks,
+   wakeups and the exact gesture sequence. Relevant code:
+   `src/fw/drivers/touch/cst816/cst816.c` and
+   `src/fw/services/touch/touch.c`.
+
+4. **Accelerometer fan-out and subsampling.** The LSM6DSO can feed batches at
+   up to 208 Hz. The accelerometer manager walks a linked subscriber list under
+   one mutex, then repeatedly reads and subsamples the shared circular buffer
+   for each subscriber. This is separate from the existing Rust Kraepelin
+   transforms. A Rust dispatcher could use fixed subscriber slots grouped by
+   sampling ratio, advance each batch once and copy matching samples in bounded
+   passes. Replay identical FIFO batches with one, four and eight subscribers.
+   Require identical sample values, timestamps and callbacks while measuring
+   CPU time, lock hold time, FIFO overruns and sleep residency. Relevant code:
+   `src/fw/drivers/imu/lsm6dso/lsm6dso.c` and
+   `src/fw/services/accel_manager/service.c`.
+
+5. **PFS file and free-page lookup.** Emery's 21 MB filesystem makes linear
+   scans more expensive than on smaller platforms. Name lookup checks every
+   start page, while allocation scans pages and erase regions before choosing or
+   collecting a sector. A fixed-capacity Rust index could map file-name hashes
+   to validated start pages and maintain free-page summaries rebuilt at mount,
+   without changing the on-flash format. Benchmark cold mount and file
+   open/create/delete workloads at 10%, 50% and 90% occupancy. Compare p50/p99
+   latency, QSPI reads, erase count, mutex hold time and power-loss recovery.
+   Relevant code: `src/fw/services/filesystem/pfs.c` and
+   `src/fw/flash_region/flash_region_gd25q256e.h`.
+
 ## Timers
 
 Task timers live in sorted linked lists and timer IDs are found by linear scan.
