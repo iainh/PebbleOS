@@ -17,6 +17,14 @@ config SERVICE_ACCEL_MANAGER_BATCH_SAMPLES
       callback. Sizes the shared accel buffer. Limited by the accelerometer
       FIFO depth.
 
+config SERVICE_ACCEL_MANAGER_RUST_SUBSAMPLING
+    bool "Rust accelerometer fan-out subsampling kernel"
+    default n
+    help
+      Use the Rust implementation of the per-subscriber rational subsampling
+      planner. This is an opt-in performance candidate; the production C path
+      remains the default.
+
 module = SERVICE_ACCEL_MANAGER
 module-str = Accelerometer manager
 source "subsys/logging/Kconfig.template.log_level"
