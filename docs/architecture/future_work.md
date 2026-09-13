@@ -32,10 +32,11 @@ per frame, missed animation deadlines and display-bus bytes. Tile metadata and
 cache storage must cost less energy than the avoided rendering and transfer.
 
 The first implementation is available behind `CONFIG_COMPOSITOR_DAMAGE_RUST`.
-It uses a fixed 16×16 tile bitmap in each framebuffer and a `no_std` Rust core
-to retain disjoint damage. The display still sends complete rows because the
-display API has no horizontal span, but it skips clean tile rows between dirty
-regions. A 260×260 framebuffer adds 40 bytes of damage metadata.
+It uses a fixed bitmap of 16-row tiles in each framebuffer and a `no_std` Rust
+core to retain disjoint damage. The display sends complete rows, so horizontal
+tiles would add bookkeeping without reducing transfers. A 260×260 framebuffer
+adds 4 bytes of damage metadata and can skip clean tile rows between dirty
+regions.
 
 Obelix retains the bounding-rectangle path. Its JDI driver converts supplied
 rows in place before submitting one contiguous region, so skipping rows inside
@@ -284,6 +285,48 @@ Host tests additionally cover shrinking, adjacent growth, fallback movement,
 metrics, payload preservation and complete coalescing. Repeat representative
 notification, timeline and app-launch traces on hardware before enabling this
 option by default.
+
+### Combined replacement results
+
+The `rust-rewrites-combined` branch enables compositor damage tracking,
+notification compaction, send-queue accounting and heap resizing together. The
+controlled C build used the same commit with all four options disabled. The
+replacement build used all four options enabled. Both were `qemu_gabbro`
+performance builds and used the same QEMU host; storage used 15 samples and the
+other workloads used 20.
+
+| Workload | C median | Combined median | Change | C p95 | Combined p95 | Change |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Synthetic notification, end-to-end | 11,000 µs | 12,000 µs | +9.1% | 12,000 µs | 21,000 µs | +75.0% |
+| Full notification file, storage stage | 72,000 µs | 39,000 µs | −45.8% | 88,000 µs | 66,000 µs | −25.0% |
+| Full notification file, end-to-end | 83,000 µs | 50,000 µs | −39.8% | 103,000 µs | 75,000 µs | −27.2% |
+| Communication queue | 11,500 µs | 5,500 µs | −52.2% | 14,000 µs | 7,000 µs | −50.0% |
+| Heap resize | 2,000 µs | 3,000 µs | +50.0% | 3,000 µs | 3,000 µs | 0.0% |
+| Sparse display damage | 3,000 µs | 1,000 µs | −66.7% | 4,000 µs | 1,000 µs | −75.0% |
+
+Sparse damage submitted 32 rows instead of 244, an 86.9% reduction. Queue and
+heap checksums matched the C build at 4,073,865,016 and 904,026,885. All 4,096
+replacement heap resizes retained their address, compared with none in the C
+build.
+
+An initial 2D damage bitmap increased synthetic notification rendering from a
+7 ms to a 10 ms median because it tracked horizontal tiles that the row-only
+display API cannot use. The row-tile design restored the 7 ms render median and
+reduced the combined metadata cost. Total synthetic latency remained within one
+1 ms clock tick at the median, while host scheduling outliers made its p95 worse.
+The final firmware costs 800 bytes of flash and no additional RAM on Gabbro:
+1,690,648 bytes flash and 155,712 bytes RAM, compared with 1,689,848 bytes and
+155,712 bytes for the C build.
+
+Combined host tests also exposed an interaction in the first notification
+planner: it rounded the total request before accounting for existing tombstones
+and could evict live notifications unnecessarily. The planner now subtracts
+tombstone space first and rounds only the remaining deficit.
+
+These are virtual-time regression results, not hardware latency measurements.
+The deterministic row count, checksums and stable-resize count establish output
+equivalence for the benchmark workloads; physical watches remain necessary to
+measure wall-clock latency, display integrity, flash behaviour and energy use.
 
 In an orb, run QEMU as a supervised service rather than a background shell:
 
