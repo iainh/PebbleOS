@@ -12,6 +12,7 @@
 #include "system/passert.h"
 #include "pbl/util/math.h"
 #include "pbl/util/size.h"
+#include "services/filesystem/pfs_lookup.h"
 
 #include "clar.h"
 
@@ -261,6 +262,53 @@ void test_pfs__page_lookup_cache(void) {
 
   pfs_close(fd);
 }
+
+#ifdef CONFIG_PFS_LOOKUP_RUST
+extern status_t test_pfs_locate_file(const char *name, uint16_t *page);
+
+void test_pfs__rust_filename_cache_validates_and_falls_back(void) {
+  uint16_t page_a;
+  pfs_lookup_benchmark_reset();
+  cl_assert_equal_i(test_pfs_locate_file(TEST_FILE_A_NAME, &page_a), S_SUCCESS);
+
+  PFSLookupBenchmark cold;
+  pfs_lookup_benchmark_get(&cold);
+  cl_assert(cold.scanned_pages > 0);
+  cl_assert(cold.name_reads > 0);
+
+  pfs_lookup_benchmark_reset();
+  uint16_t cached_page;
+  cl_assert_equal_i(test_pfs_locate_file(TEST_FILE_A_NAME, &cached_page), S_SUCCESS);
+  PFSLookupBenchmark warm;
+  pfs_lookup_benchmark_get(&warm);
+  cl_assert_equal_i(cached_page, page_a);
+  cl_assert_equal_i(warm.cache_candidates, 1);
+  cl_assert_equal_i(warm.cache_hits, 1);
+  cl_assert_equal_i(warm.scanned_pages, 0);
+
+  // A colliding/stale advisory candidate must be rejected by the flash name
+  // check and the baseline scan must still return the right page.
+  uint32_t hash = pfs_lookup_cache_hash((const uint8_t *)TEST_FILE_A_NAME,
+      strlen(TEST_FILE_A_NAME));
+  pfs_lookup_cache_put(hash, strlen(TEST_FILE_A_NAME), page_a + 1);
+  pfs_lookup_benchmark_reset();
+  cl_assert_equal_i(test_pfs_locate_file(TEST_FILE_A_NAME, &cached_page), S_SUCCESS);
+  PFSLookupBenchmark stale;
+  pfs_lookup_benchmark_get(&stale);
+  cl_assert_equal_i(cached_page, page_a);
+  cl_assert_equal_i(stale.fallbacks, 1);
+  cl_assert(stale.scanned_pages > 0);
+
+  // Remount explicitly drops all advisory state.
+  pfs_init(false);
+  pfs_lookup_benchmark_reset();
+  cl_assert_equal_i(test_pfs_locate_file(TEST_FILE_A_NAME, &cached_page), S_SUCCESS);
+  PFSLookupBenchmark remount;
+  pfs_lookup_benchmark_get(&remount);
+  cl_assert_equal_i(remount.cache_candidates, 0);
+  cl_assert(remount.scanned_pages > 0);
+}
+#endif
 
 void test_pfs__write(void) {
   int rv = pfs_write(-1, NULL, 0);

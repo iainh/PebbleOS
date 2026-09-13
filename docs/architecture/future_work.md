@@ -235,6 +235,19 @@ work, but make performance and energy decisions from physical-device results.
    Relevant code: `src/fw/services/filesystem/pfs.c` and
    `src/fw/flash_region/flash_region_gd25q256e.h`.
 
+   The first implementation is available behind `CONFIG_PFS_LOOKUP_RUST`. It
+   retains four recent hash, length and start-page candidates in 32 bytes, but
+   treats them only as hints: every hit revalidates the page type, range, full
+   filename, temporary-file state and header CRC before use. Stale or colliding
+   candidates fall back to the unchanged scan, and mount or format clears the
+   cache. Over 20 same-host `qemu_emery` samples, 256 direct lookups across four
+   files improved from a 19,000 µs median and 21,000 µs p95 to 3,000 µs for
+   both. The result checksum matched, and warm samples eliminated all 25,472
+   scanned pages while retaining one validation name read per lookup. The
+   option adds 448 bytes of flash and 32 bytes of RAM. This does not optimize
+   cold mount, allocation or erases; measure representative app launch and
+   storage traces on physical Emery hardware before enabling it by default.
+
 ## Timers
 
 Task timers live in sorted linked lists and timer IDs are found by linear scan.

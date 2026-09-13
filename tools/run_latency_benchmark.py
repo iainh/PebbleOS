@@ -49,11 +49,21 @@ ACCEL_RESULT_RE = re.compile(
     rb" checksum=(?P<checksum>\d+)"
     rb" batches=(?P<batches>\d+)"
 )
+PFS_RESULT_RE = re.compile(
+    rb"PFS_RESULT version=(?P<version>\d+)"
+    rb" total_us=(?P<total_us>\d+)"
+    rb" checksum=(?P<checksum>\d+)"
+    rb" opens=(?P<opens>\d+)"
+    rb" scans=(?P<scans>\d+)"
+    rb" reads=(?P<reads>\d+)"
+    rb" hits=(?P<hits>\d+)"
+)
 FIELDS = ("total_us", "storage_us", "dispatch_us", "render_us", "flush_us", "rows")
 QUEUE_INTEGRITY = {"checksum": 4073865016, "jobs": 96, "probes": 2048}
 HEAP_INTEGRITY = {"checksum": 904026885, "cycles": 2048}
 SCALER_INTEGRITY = {"checksum": 3412336069, "rows": 4096}
 ACCEL_INTEGRITY = {"checksum": 4213203741, "batches": 16384}
+PFS_INTEGRITY = {"checksum": 2886675909, "opens": 256}
 
 
 def _read_until(sock: socket.socket, marker: bytes, timeout: float) -> bytes:
@@ -106,7 +116,9 @@ def main() -> int:
     parser.add_argument("--iterations", type=int, default=20)
     parser.add_argument(
         "--mode",
-        choices=("synthetic", "storage", "damage", "queue", "heap", "scaler", "accel"),
+        choices=(
+            "synthetic", "storage", "damage", "queue", "heap", "scaler", "accel", "pfs"
+        ),
         default="synthetic",
     )
     parser.add_argument("--host", default="127.0.0.1")
@@ -138,6 +150,7 @@ def main() -> int:
                 "heap": HEAP_RESULT_RE,
                 "scaler": SCALER_RESULT_RE,
                 "accel": ACCEL_RESULT_RE,
+                "pfs": PFS_RESULT_RE,
             }.get(args.mode, RESULT_RE)
             match = result_re.search(response)
             if not match:
@@ -156,7 +169,11 @@ def main() -> int:
                         else (
                             ("total_us", "checksum", "batches")
                             if args.mode == "accel"
-                            else FIELDS
+                            else (
+                                ("total_us", "checksum", "opens", "scans", "reads", "hits")
+                                if args.mode == "pfs"
+                                else FIELDS
+                            )
                         )
                     )
                 )
@@ -190,15 +207,22 @@ def main() -> int:
                         "accelerometer integrity check failed: "
                         f"expected {ACCEL_INTEGRITY}, got {actual_integrity}"
                     )
+            elif args.mode == "pfs":
+                actual_integrity = {field: result[field] for field in PFS_INTEGRITY}
+                if actual_integrity != PFS_INTEGRITY:
+                    raise RuntimeError(
+                        "PFS integrity check failed: "
+                        f"expected {PFS_INTEGRITY}, got {actual_integrity}"
+                    )
             results.append(result)
             detail = (
                 f"checksum={result['checksum']}"
-                if args.mode in ("queue", "heap", "scaler", "accel")
+                if args.mode in ("queue", "heap", "scaler", "accel", "pfs")
                 else f"rows={result['rows']}"
             )
             print(f"{iteration + 1:02d}: total={result['total_us']} us, {detail}")
 
-            if args.mode not in ("damage", "queue", "heap", "scaler", "accel"):
+            if args.mode not in ("damage", "queue", "heap", "scaler", "accel", "pfs"):
                 # Let the notification transition settle, then dismiss it before the next sample.
                 time.sleep(0.5)
                 _monitor_command(args.monitor, "sendkey left")
@@ -212,7 +236,7 @@ def main() -> int:
 
     summary_fields = (
         ("total_us",)
-        if args.mode in ("queue", "heap", "scaler", "accel")
+        if args.mode in ("queue", "heap", "scaler", "accel", "pfs")
         else FIELDS
     )
     report = {

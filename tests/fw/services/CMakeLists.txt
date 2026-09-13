@@ -1,6 +1,13 @@
 # SPDX-FileCopyrightText: 2026 Core Devices LLC
 # SPDX-License-Identifier: Apache-2.0
 
+include(rust)
+pbl_rust_object(pebble_pfs_lookup_test
+  ${PBL_BASE}/src/fw/services/filesystem/pfs-lookup-rust rust_object)
+add_library(test_pfs_lookup_rust STATIC ${rust_object})
+set_target_properties(test_pfs_lookup_rust PROPERTIES LINKER_LANGUAGE C)
+add_dependencies(test_pfs_lookup_rust pebble_pfs_lookup_test_rust_build)
+
 # The timezone database the tests check against, as a C array. The
 # firmware bakes the same bytes into a resource.
 set(timezone_fixture ${CMAKE_CURRENT_BINARY_DIR}/timezone_fixture.auto.h)
@@ -27,7 +34,8 @@ pbl_clar_test(test_pfs
     src/fw/util/legacy_checksum.c
     tests/fakes/fake_rtc.c
   PLATFORMS obelix
-  DEFINES DUMA_DISABLED
+  DEFINES DUMA_DISABLED CONFIG_PFS_LOOKUP_RUST
+  LIBS test_pfs_lookup_rust
   OVERRIDES dummy_board
 )
 

@@ -20,6 +20,7 @@
 #include "pbl/kernel/mutex.h"
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/filesystem/flash_translation.h"
+#include "pfs_lookup.h"
 #include "system/hexdump.h"
 #include <pbl/logging/logging.h>
 #include "system/passert.h"
@@ -453,6 +454,106 @@ static status_t write_pg_header(PageHeader *hdr, uint16_t pg) {
 }
 
 static status_t unlink_flash_file(uint16_t page);
+static status_t locate_flash_file(const char *name, uint16_t *page);
+
+#if defined(CONFIG_PERFORMANCE_TESTS) || UNITTEST
+static PFSLookupBenchmark s_lookup_benchmark;
+
+void pfs_lookup_benchmark_reset(void) {
+  s_lookup_benchmark = (PFSLookupBenchmark) {};
+  s_lookup_benchmark.integrity = 2166136261u;
+}
+
+void pfs_lookup_benchmark_get(PFSLookupBenchmark *result) {
+  if (result != NULL) {
+    *result = s_lookup_benchmark;
+  }
+}
+
+static void prv_lookup_benchmark_finish(uint32_t start_ticks, status_t status, uint16_t page) {
+  s_lookup_benchmark.elapsed_ticks += rtc_get_ticks() - start_ticks;
+  s_lookup_benchmark.integrity ^= (uint32_t)status;
+  s_lookup_benchmark.integrity *= 16777619u;
+  s_lookup_benchmark.integrity ^= (status == S_SUCCESS) ? page : INVALID_PAGE;
+  s_lookup_benchmark.integrity *= 16777619u;
+}
+#endif
+
+#ifdef CONFIG_PERFORMANCE_TESTS
+static const char *const s_benchmark_names[] = {
+  "latency-pfs-target-a",
+  "latency-pfs-target-b",
+  "latency-pfs-target-c",
+  "latency-pfs-target-d",
+};
+#define PFS_BENCHMARK_NAME_COUNT (sizeof(s_benchmark_names) / sizeof(s_benchmark_names[0]))
+
+static bool prv_prepare_benchmark_file(const char *name, uint8_t value) {
+  int fd = pfs_open(name, OP_FLAG_READ, 0, 0);
+  if (fd >= 0) {
+    return pfs_close(fd) == S_SUCCESS;
+  }
+  fd = pfs_open(name, OP_FLAG_WRITE, FILE_TYPE_STATIC, 1);
+  return fd >= 0 && pfs_write(fd, &value, 1) == 1 && pfs_close(fd) == S_SUCCESS;
+}
+
+bool pfs_lookup_benchmark_prepare(void) {
+  char name[24];
+  for (unsigned int i = 0; i < 28; ++i) {
+    snprintf(name, sizeof(name), "latency-pfs-fill-%02u", i);
+    if (!prv_prepare_benchmark_file(name, (uint8_t)i)) {
+      return false;
+    }
+  }
+  for (size_t i = 0; i < PFS_BENCHMARK_NAME_COUNT; ++i) {
+    if (!prv_prepare_benchmark_file(s_benchmark_names[i], (uint8_t)(0xa0 + i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+uint32_t pfs_lookup_benchmark_run(uint32_t iterations) {
+  uint32_t checksum = 2166136261u;
+  for (uint32_t i = 0; i < iterations; ++i) {
+    const size_t index = i % PFS_BENCHMARK_NAME_COUNT;
+    uint16_t page = INVALID_PAGE;
+    const status_t result = locate_flash_file(s_benchmark_names[index], &page);
+    checksum = (checksum ^ (uint32_t)result) * 16777619u;
+    checksum = (checksum ^ page) * 16777619u;
+  }
+  return checksum;
+}
+#endif
+
+#ifdef CONFIG_PFS_LOOKUP_RUST
+static bool prv_cached_file_matches(const char *name, uint8_t namelen, uint16_t page) {
+  if (page >= s_pfs_page_count ||
+      !IS_PAGE_TYPE(prv_get_page_flags(page), PAGE_FLAG_START_PAGE)) {
+    return false;
+  }
+
+  FileHeader file_hdr;
+  const uint32_t page_offset = prv_page_to_flash_offset(page);
+  prv_flash_read((uint8_t *)&file_hdr.file_namelen, sizeof(file_hdr.file_namelen),
+      page_offset + FILEHEADER_OFFSET + offsetof(FileHeader, file_namelen));
+  if (file_hdr.file_namelen != namelen) {
+    return false;
+  }
+
+  char file_name[namelen];
+  prv_flash_read((uint8_t *)file_name, namelen, page_offset + FILE_NAME_OFFSET);
+#if defined(CONFIG_PERFORMANCE_TESTS) || UNITTEST
+  s_lookup_benchmark.name_reads++;
+#endif
+  if (memcmp(name, file_name, namelen) != 0 || is_tmp_file(page)) {
+    return false;
+  }
+
+  PageHeader page_hdr;
+  return read_header(page, &page_hdr, &file_hdr) == PageAndFileHdrValid;
+}
+#endif
 
 // note: the goal here is to do as few flash reads as possible
 // while scanning the flash to find a given file.
@@ -462,7 +563,34 @@ static status_t locate_flash_file(const char *name, uint16_t *page) {
   uint8_t namelen = strlen(name);
   uint16_t corrupt_pg = INVALID_PAGE;
 
+#if defined(CONFIG_PERFORMANCE_TESTS) || UNITTEST
+  const uint32_t start_ticks = rtc_get_ticks();
+#endif
+#ifdef CONFIG_PFS_LOOKUP_RUST
+  const uint32_t name_hash = pfs_lookup_cache_hash((const uint8_t *)name, namelen);
+  uint16_t cached_page;
+  if (pfs_lookup_cache_get(name_hash, namelen, &cached_page)) {
+#if defined(CONFIG_PERFORMANCE_TESTS) || UNITTEST
+    s_lookup_benchmark.cache_candidates++;
+#endif
+    if (prv_cached_file_matches(name, namelen, cached_page)) {
+      *page = cached_page;
+#if defined(CONFIG_PERFORMANCE_TESTS) || UNITTEST
+      s_lookup_benchmark.cache_hits++;
+      prv_lookup_benchmark_finish(start_ticks, S_SUCCESS, cached_page);
+#endif
+      return S_SUCCESS;
+    }
+#if defined(CONFIG_PERFORMANCE_TESTS) || UNITTEST
+    s_lookup_benchmark.fallbacks++;
+#endif
+  }
+#endif
+
   for (uint16_t pg = 0; pg < s_pfs_page_count; pg++) {
+#if defined(CONFIG_PERFORMANCE_TESTS) || UNITTEST
+    s_lookup_benchmark.scanned_pages++;
+#endif
     PageHeader pg_hdr;
     FileHeader file_hdr;
     pg_hdr.page_flags = prv_get_page_flags(pg);
@@ -479,6 +607,9 @@ static status_t locate_flash_file(const char *name, uint16_t *page) {
 
       prv_flash_read((uint8_t *)file_name, namelen, prv_page_to_flash_offset(pg) +
           FILE_NAME_OFFSET);
+#if defined(CONFIG_PERFORMANCE_TESTS) || UNITTEST
+      s_lookup_benchmark.name_reads++;
+#endif
 
       if ((memcmp(name, file_name, namelen) == 0) && (!is_tmp_file(pg))) {
 
@@ -498,13 +629,28 @@ static status_t locate_flash_file(const char *name, uint16_t *page) {
         }
 
         *page = pg;
+#ifdef CONFIG_PFS_LOOKUP_RUST
+        pfs_lookup_cache_put(name_hash, namelen, pg);
+#endif
+#if defined(CONFIG_PERFORMANCE_TESTS) || UNITTEST
+        prv_lookup_benchmark_finish(start_ticks, S_SUCCESS, pg);
+#endif
         return (S_SUCCESS);
       }
     }
   }
 
+#if defined(CONFIG_PERFORMANCE_TESTS) || UNITTEST
+  prv_lookup_benchmark_finish(start_ticks, E_DOES_NOT_EXIST, INVALID_PAGE);
+#endif
   return (E_DOES_NOT_EXIST);
 }
+
+#if UNITTEST && defined(CONFIG_PFS_LOOKUP_RUST)
+status_t test_pfs_locate_file(const char *name, uint16_t *page) {
+  return locate_flash_file(name, page);
+}
+#endif
 
 // Populates 'hdr' with what the new erase header for the 'page' specified
 // should look like
@@ -2084,6 +2230,12 @@ done:
 }
 
 status_t pfs_init(bool run_filesystem_check) {
+#ifdef CONFIG_PFS_LOOKUP_RUST
+  pfs_lookup_cache_reset();
+#if defined(CONFIG_PERFORMANCE_TESTS) || UNITTEST
+  pfs_lookup_benchmark_reset();
+#endif
+#endif
   for (int fd = FD_INDEX_OFFSET; fd < FD_INDEX_OFFSET+MAX_FD_HANDLES; fd++) {
     PFS_FD(fd) = (FileDesc) { .fd_status = FD_STATUS_FREE };
   }
@@ -2133,6 +2285,10 @@ status_t pfs_init(bool run_filesystem_check) {
 void pfs_format(bool write_erase_headers) {
   PBL_LOG_INFO("FS-Format Start");
   pbl_mutex_lock(&s_pfs_mutex, PBL_FOREVER);
+
+#ifdef CONFIG_PFS_LOOKUP_RUST
+  pfs_lookup_cache_reset();
+#endif
 
   for (int i = FD_INDEX_OFFSET; i < FD_INDEX_OFFSET+PFS_FD_SET_SIZE; i++) {
     mark_fd_free(i);

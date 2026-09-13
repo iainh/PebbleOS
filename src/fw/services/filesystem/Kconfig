@@ -8,6 +8,13 @@ config SERVICE_FILESYSTEM
 
 if SERVICE_FILESYSTEM
 
+config PFS_LOOKUP_RUST
+    bool "Rust PFS filename lookup cache"
+    default n
+    help
+      Use a small advisory filename-to-page cache. Cache entries are always
+      checked against flash and stale entries fall back to the normal scan.
+
 module = SERVICE_FILESYSTEM
 module-str = Filesystem
 source "subsys/logging/Kconfig.template.log_level"
