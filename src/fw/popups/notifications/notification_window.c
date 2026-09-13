@@ -18,6 +18,7 @@
 #include "applib/ui/window_manager.h"
 #include "applib/ui/window_stack.h"
 #include "apps/system/timeline/peek_layer.h"
+#include "console/latency_benchmark.h"
 #include "kernel/event_loop.h"
 #include "kernel/pbl_malloc.h"
 #include "kernel/ui/modals/modal_manager.h"
@@ -1680,6 +1681,7 @@ void notification_window_handle_notification(PebbleSysNotificationEvent *e) {
       prv_handle_action_result(e->action_result);
       break;
     case NotificationAdded:
+      latency_benchmark_notification_ui_handled();
       prv_handle_notification_added_common(e->notification_id, NotificationMobile);
       break;
     case NotificationActedUpon:

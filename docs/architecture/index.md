@@ -119,6 +119,7 @@ Longer design documents live as their own pages:
 ```{toctree}
 :maxdepth: 1
 activity/index.md
+future_work.md
 kernel.md
 kernel_internals.md
 ```

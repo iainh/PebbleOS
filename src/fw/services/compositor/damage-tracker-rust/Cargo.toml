@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Core Devices LLC
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "pebble-compositor-damage"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib"]
+
+[profile.release]
+codegen-units = 1
+opt-level = 3
+panic = "abort"

@@ -3,6 +3,7 @@
 
 #include "pbl/services/notifications/notifications.h"
 
+#include "console/latency_benchmark.h"
 #include "pbl/services/notifications/notification_storage.h"
 
 #include "util/bitset.h"
@@ -80,7 +81,9 @@ void notifications_init(void) {
 }
 
 void notifications_add_notification(TimelineItem *notification) {
+  latency_benchmark_notification_received();
   notification_storage_store(notification);
+  latency_benchmark_notification_stored();
 
   Uuid *uuid = kernel_malloc_check(sizeof(Uuid));
   *uuid = notification->header.id;

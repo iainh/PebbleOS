@@ -20,5 +20,17 @@ if(CONFIG_SCREEN_COLOR_DEPTH_BITS EQUAL 1)
 else()
   list(APPEND sources default/compositor_modal_transitions.c)
 endif()
+
+if(CONFIG_COMPOSITOR_DAMAGE_RUST)
+  include(rust)
+  pbl_rust_object(pebble_compositor_damage
+    ${CMAKE_CURRENT_SOURCE_DIR}/damage-tracker-rust rust_object)
+  pbl_library_named(compositor_damage_rust)
+  pbl_library_kind(stlib)
+  pbl_library_sources(${rust_object})
+  set_target_properties(compositor_damage_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(compositor_damage_rust pebble_compositor_damage_rust_build)
+endif()
+
 pbl_library()
 pbl_library_sources(${sources})

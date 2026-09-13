@@ -3,6 +3,7 @@
 
 #include "pbl/services/compositor/compositor.h"
 
+#include "console/latency_benchmark.h"
 #include "applib/graphics/framebuffer.h"
 #include "applib/graphics/gcolor_definitions.h"
 #include "applib/graphics/gtypes.h"
@@ -15,11 +16,13 @@
 //! This variable is used when we are flushing s_framebuffer out to the display driver.
 //! It's set to the current row index that we are DMA'ing out to the display.
 static uint16_t s_current_flush_line;
+static uint16_t s_current_row_count;
+static uint16_t s_last_row_count;
 
 static void (*s_update_complete_handler)(void);
 
 #ifdef CONFIG_BOARD_ASTERIX
-static const uint8_t s_corner_shape[] = { 3, 1, 1 };
+static const uint8_t s_corner_shape[] = {3, 1, 1};
 static uint8_t s_line_buffer[FRAMEBUFFER_BYTES_PER_ROW];
 #endif
 
@@ -27,24 +30,30 @@ static uint8_t s_line_buffer[FRAMEBUFFER_BYTES_PER_ROW];
 // Rounded corner mask for Obelix — radius 3 quarter-circle.
 // Each entry is the number of pixels to mask from the left/right edge.
 // Shape follows a quarter-circle: at row y, mask pixels where x < sqrt(r² - y²)
-static const uint8_t s_corner_shape[] = { 3, 3, 2, 1 };
+static const uint8_t s_corner_shape[] = {3, 3, 2, 1};
 
 // For Obelix, we modify the framebuffer directly because the display driver
 // does in-place pixel format conversion and expects row.data to point into
 // the compositor's framebuffer. We save original corner pixels here to restore later.
 #define CORNER_SAVE_ROWS ARRAY_LENGTH(s_corner_shape)
 #define CORNER_MAX_WIDTH 3
-static uint8_t s_saved_corners[CORNER_SAVE_ROWS * 2][CORNER_MAX_WIDTH * 2]; // [row][left+right pixels]
+static uint8_t s_saved_corners[CORNER_SAVE_ROWS * 2]
+                              [CORNER_MAX_WIDTH * 2];  // [row][left+right pixels]
 static uint8_t s_dirty_y0;
 static uint8_t s_dirty_y1;
 #endif
 
 //! display_update get next line callback
-static bool prv_flush_get_next_line_cb(DisplayRow* row) {
+static bool prv_flush_get_next_line_cb(DisplayRow *row) {
   FrameBuffer *fb = compositor_get_framebuffer();
 
+#ifdef CONFIG_BOARD_OBELIX
   s_current_flush_line = MAX(s_current_flush_line, fb->dirty_rect.origin.y);
   const uint16_t y_end = fb->dirty_rect.origin.y + fb->dirty_rect.size.h;
+#else
+  s_current_flush_line = framebuffer_get_next_dirty_row(fb, s_current_flush_line);
+  const uint16_t y_end = fb->size.h;
+#endif
   if (s_current_flush_line < y_end) {
     row->address = s_current_flush_line;
     void *fb_line = framebuffer_get_line(fb, s_current_flush_line);
@@ -54,9 +63,9 @@ static bool prv_flush_get_next_line_cb(DisplayRow* row) {
     if (s_current_flush_line < ARRAY_LENGTH(s_corner_shape) ||
         s_current_flush_line >= DISP_ROWS - ARRAY_LENGTH(s_corner_shape)) {
       memcpy(s_line_buffer, fb_line, FRAMEBUFFER_BYTES_PER_ROW);
-      uint8_t corner_idx =
-        (s_current_flush_line < ARRAY_LENGTH(s_corner_shape))?
-        s_current_flush_line : DISP_ROWS - s_current_flush_line - 1;
+      uint8_t corner_idx = (s_current_flush_line < ARRAY_LENGTH(s_corner_shape))
+                               ? s_current_flush_line
+                               : DISP_ROWS - s_current_flush_line - 1;
       uint8_t corner_width = s_corner_shape[corner_idx];
       for (uint8_t pixel = 0; pixel < corner_width; ++pixel) {
         bitset8_clear(s_line_buffer, pixel);
@@ -72,12 +81,12 @@ static bool prv_flush_get_next_line_cb(DisplayRow* row) {
     // to point into the compositor's framebuffer. We save and restore corners.
     if (s_current_flush_line < ARRAY_LENGTH(s_corner_shape) ||
         s_current_flush_line >= DISP_ROWS - ARRAY_LENGTH(s_corner_shape)) {
-      uint8_t corner_idx =
-        (s_current_flush_line < ARRAY_LENGTH(s_corner_shape))?
-        s_current_flush_line : DISP_ROWS - s_current_flush_line - 1;
-      uint8_t save_idx =
-        (s_current_flush_line < ARRAY_LENGTH(s_corner_shape))?
-        s_current_flush_line : CORNER_SAVE_ROWS + corner_idx;
+      uint8_t corner_idx = (s_current_flush_line < ARRAY_LENGTH(s_corner_shape))
+                               ? s_current_flush_line
+                               : DISP_ROWS - s_current_flush_line - 1;
+      uint8_t save_idx = (s_current_flush_line < ARRAY_LENGTH(s_corner_shape))
+                             ? s_current_flush_line
+                             : CORNER_SAVE_ROWS + corner_idx;
       uint8_t corner_width = s_corner_shape[corner_idx];
       uint8_t *line = fb_line;
       // Save original corner pixels
@@ -96,6 +105,7 @@ static bool prv_flush_get_next_line_cb(DisplayRow* row) {
     row->data = fb_line;
 #endif
     s_current_flush_line++;
+    s_current_row_count++;
     return true;
   }
 
@@ -123,14 +133,17 @@ static void prv_flush_complete_cb(void) {
       uint8_t *bottom_line = framebuffer_get_line(fb, bottom_row);
       for (uint8_t pixel = 0; pixel < corner_width; ++pixel) {
         bottom_line[pixel] = s_saved_corners[CORNER_SAVE_ROWS + i][pixel];
-        bottom_line[DISP_COLS - pixel - 1] = s_saved_corners[CORNER_SAVE_ROWS + i][CORNER_MAX_WIDTH + pixel];
+        bottom_line[DISP_COLS - pixel - 1] =
+            s_saved_corners[CORNER_SAVE_ROWS + i][CORNER_MAX_WIDTH + pixel];
       }
     }
   }
 #endif
 
+  s_last_row_count = s_current_row_count;
   s_current_flush_line = 0;
   framebuffer_reset_dirty(compositor_get_framebuffer());
+  latency_benchmark_display_update_complete();
 
   if (s_update_complete_handler) {
     s_update_complete_handler();
@@ -144,7 +157,7 @@ void compositor_display_update(void (*handle_update_complete_cb)(void)) {
   }
 #ifdef CONFIG_BOARD_GETAFIX
   // Force full screen updates - partial ROI causes animation issues on getafix display
-  fb->dirty_rect = (GRect){ GPointZero, fb->size };
+  framebuffer_dirty_all(fb);
 #endif
 #ifdef CONFIG_BOARD_OBELIX
   // Capture dirty region bounds for corner restoration later
@@ -153,10 +166,16 @@ void compositor_display_update(void (*handle_update_complete_cb)(void)) {
 #endif
   s_update_complete_handler = handle_update_complete_cb;
   s_current_flush_line = 0;
+  s_current_row_count = 0;
 
+  latency_benchmark_display_update_started();
   display_update(&prv_flush_get_next_line_cb, &prv_flush_complete_cb);
 }
 
 bool compositor_display_update_in_progress(void) {
   return display_update_in_progress();
+}
+
+uint16_t compositor_display_get_last_row_count(void) {
+  return s_last_row_count;
 }

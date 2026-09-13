@@ -277,6 +277,9 @@ extern void command_perftest_line_all(void);
 extern void command_perftest_glyph(const char *, const char *, const char *, const char *);
 extern void command_perftest_text(const char *, const char *, const char *);
 extern void command_perftest_text_all(void);
+#ifdef CONFIG_PERFORMANCE_TESTS
+extern void command_latency_benchmark(const char *mode);
+#endif
 
 extern void command_bt_sleep_check(const char *iters);
 
@@ -624,6 +627,7 @@ static const Command s_prompt_commands[] = {
 #endif
 
 #ifdef CONFIG_PERFORMANCE_TESTS
+  { "latency benchmark", command_latency_benchmark, 1 },
   { "perftest all line", command_perftest_line_all, 0 },
   { "perftest all text", command_perftest_text_all, 0 },
   { "perftest glyph", command_perftest_glyph, 4 },

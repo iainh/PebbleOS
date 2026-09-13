@@ -62,6 +62,12 @@ config BITBLT_RUST
       Replace the tiled 8-bit and palettized bitmap hot paths with the
       optimized Rust implementation.
 
+config COMPOSITOR_DAMAGE_RUST
+    bool "Rust compositor tile damage tracking"
+    depends on SERVICE_COMPOSITOR
+    help
+      Track disjoint 16-pixel compositor tiles and skip clean display rows.
+
 config SETTINGS_ICONS
     bool "Settings menu icons"
     help

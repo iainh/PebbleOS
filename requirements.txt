@@ -27,6 +27,7 @@ grpcio-tools
 pyserial
 pexpect
 cobs
+six
 prompt_toolkit>=3
 requests
 libpebble2>=0.0.16
