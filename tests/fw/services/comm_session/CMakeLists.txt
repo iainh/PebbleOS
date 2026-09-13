@@ -26,6 +26,8 @@ pbl_clar_test(test_session_send_buffer
 pbl_clar_test(test_session_send_queue
   SOURCES
     src/fw/services/comm_session/session_send_queue.c
+  DEFINES ${comm_session_queue_defines}
+  LIBS ${comm_session_queue_libs}
 )
 
 pbl_clar_test(test_session_receive_router

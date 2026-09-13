@@ -256,6 +256,18 @@ if(CONFIG_NOTIFICATION_COMPACTION_RUST)
   set(notification_compaction_libs test_notification_compaction_rust)
 endif()
 
+if(CONFIG_COMM_SESSION_QUEUE_RUST)
+  include(rust)
+  pbl_rust_object(pebble_comm_session_queue
+    ${PBL_BASE}/src/fw/services/comm_session/queue-accounting-rust
+    rust_object)
+  add_library(test_comm_session_queue_rust STATIC ${rust_object})
+  set_target_properties(test_comm_session_queue_rust PROPERTIES LINKER_LANGUAGE C)
+  add_dependencies(test_comm_session_queue_rust pebble_comm_session_queue_rust_build)
+  set(comm_session_queue_defines CONFIG_COMM_SESSION_QUEUE_RUST)
+  set(comm_session_queue_libs test_comm_session_queue_rust)
+endif()
+
 if(CONFIG_TINFLATE_RUST)
   include(rust)
   pbl_rust_object(pebble_tinflate

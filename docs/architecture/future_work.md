@@ -96,6 +96,19 @@ For Pebble, replace queue metadata with fixed-capacity rings and:
 Backpressure is part of the protocol design. Never evict a reliable command to
 make room for a newer state update.
 
+The first implementation is available behind `CONFIG_COMM_SESSION_QUEUE_RUST`.
+It retains polymorphic intrusive jobs, because send buffers and transports own
+jobs with different lifetimes, but removes two unbounded operations. A cached
+tail makes append constant-time, and a `no_std` Rust accounting state makes
+queued-byte queries constant-time with checked overflow and underflow. Partial
+and multi-job consumption update the count, while cleanup and an emptied queue
+reset both metadata fields.
+
+A fixed-capacity ring is not part of this phase. It would require a new ownership
+and backpressure contract for heterogeneous reliable jobs. Priority lanes,
+replaceable-state coalescing and telemetry remain future work and should be
+benchmarked with realistic protocol traffic before changing delivery semantics.
+
 ## Heap allocator
 
 The current allocator linearly searches physical heap segments. `realloc`
@@ -206,6 +219,31 @@ latency by 31.0%. The existing storage tests also verify oldest-record
 eviction, tombstone removal, retained payload equality, subsequent writes and
 corruption handling with the Rust option enabled. QEMU timings remain virtual;
 repeat this workload on hardware to measure flash latency, energy and wear.
+
+Use `queue` mode to enqueue 96 heterogeneous one-to-eight-byte jobs, perform
+2,048 deterministic length and offset-copy probes, and consume the complete
+queue. Add `-DCONFIG_COMM_SESSION_QUEUE_RUST=y` when configuring the replacement
+build:
+
+```shell
+.venv/bin/python tools/run_latency_benchmark.py --mode queue \
+  --iterations 20 --output build/queue-results.json
+```
+
+On `qemu_gabbro`, 20 same-host samples produced:
+
+| Implementation | Total, median | Total, p95 | Integrity checksum |
+| --- | ---: | ---: | ---: |
+| Linked-list scans | 14,000 µs | 21,000 µs | 4,073,865,016 |
+| Rust accounting + cached tail | 6,000 µs | 6,000 µs | 4,073,865,016 |
+
+The replacement reduced median queue workload time by 57.1%. Every sample
+produced the same copied-byte checksum, and the firmware asserts the expected
+queue length, empty final head and 96 released jobs. Host tests additionally
+cover asymmetric job contents, partial and overlong consumption, cleanup, and
+enqueueing after the queue becomes empty. The workload isolates queue
+operations rather than modelling radio airtime; physical-device testing should
+also measure Bluetooth-lock hold time and end-to-end protocol latency.
 
 In an orb, run QEMU as a supervised service rather than a background shell:
 

@@ -75,6 +75,12 @@ config NOTIFICATION_COMPACTION_RUST
       Compact notification storage with bounded raw record copies and a Rust
       reclaim planner instead of deserializing and reserializing live records.
 
+config COMM_SESSION_QUEUE_RUST
+    bool "Rust communication send queue accounting"
+    help
+      Cache communication send queue byte counts in Rust and maintain a tail
+      pointer so length queries and appends do not traverse the queue.
+
 config SETTINGS_ICONS
     bool "Settings menu icons"
     help

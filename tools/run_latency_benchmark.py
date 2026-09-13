@@ -23,7 +23,15 @@ RESULT_RE = re.compile(
     rb" flush_us=(?P<flush_us>\d+)"
     rb" rows=(?P<rows>\d+)"
 )
+QUEUE_RESULT_RE = re.compile(
+    rb"QUEUE_RESULT version=(?P<version>\d+)"
+    rb" total_us=(?P<total_us>\d+)"
+    rb" checksum=(?P<checksum>\d+)"
+    rb" jobs=(?P<jobs>\d+)"
+    rb" probes=(?P<probes>\d+)"
+)
 FIELDS = ("total_us", "storage_us", "dispatch_us", "render_us", "flush_us", "rows")
+QUEUE_INTEGRITY = {"checksum": 4073865016, "jobs": 96, "probes": 2048}
 
 
 def _read_until(sock: socket.socket, marker: bytes, timeout: float) -> bytes:
@@ -57,7 +65,9 @@ def _percentile(values: list[int], percentile: float) -> int:
     return ordered[max(0, math.ceil(percentile * len(ordered)) - 1)]
 
 
-def _summarize(results: list[dict[str, int]]) -> dict[str, dict[str, int]]:
+def _summarize(
+    results: list[dict[str, int]], fields: tuple[str, ...] = FIELDS
+) -> dict[str, dict[str, int]]:
     return {
         field: {
             "min": min(values := [result[field] for result in results]),
@@ -65,7 +75,7 @@ def _summarize(results: list[dict[str, int]]) -> dict[str, dict[str, int]]:
             "p95": _percentile(values, 0.95),
             "max": max(values),
         }
-        for field in FIELDS
+        for field in fields
     }
 
 
@@ -73,7 +83,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--iterations", type=int, default=20)
     parser.add_argument(
-        "--mode", choices=("synthetic", "storage", "damage"), default="synthetic"
+        "--mode",
+        choices=("synthetic", "storage", "damage", "queue"),
+        default="synthetic",
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=12345)
@@ -99,19 +111,34 @@ def main() -> int:
                     f"latency benchmark {args.mode}", timeout=command_timeout
                 )
             ).encode()
-            match = RESULT_RE.search(response)
+            result_re = QUEUE_RESULT_RE if args.mode == "queue" else RESULT_RE
+            match = result_re.search(response)
             if not match:
                 raise RuntimeError(
                     f"benchmark failed on iteration {iteration + 1}: {response!r}"
                 )
-            result = {field: int(match.group(field)) for field in FIELDS}
-            results.append(result)
-            print(
-                f"{iteration + 1:02d}: total={result['total_us']} us, "
-                f"rows={result['rows']}"
+            fields = (
+                ("total_us", "checksum", "jobs", "probes")
+                if args.mode == "queue"
+                else FIELDS
             )
+            result = {field: int(match.group(field)) for field in fields}
+            if args.mode == "queue":
+                actual_integrity = {field: result[field] for field in QUEUE_INTEGRITY}
+                if actual_integrity != QUEUE_INTEGRITY:
+                    raise RuntimeError(
+                        "queue integrity check failed: "
+                        f"expected {QUEUE_INTEGRITY}, got {actual_integrity}"
+                    )
+            results.append(result)
+            detail = (
+                f"checksum={result['checksum']}"
+                if args.mode == "queue"
+                else f"rows={result['rows']}"
+            )
+            print(f"{iteration + 1:02d}: total={result['total_us']} us, {detail}")
 
-            if args.mode != "damage":
+            if args.mode not in ("damage", "queue"):
                 # Let the notification transition settle, then dismiss it before the next sample.
                 time.sleep(0.5)
                 _monitor_command(args.monitor, "sendkey left")
@@ -123,11 +150,12 @@ def main() -> int:
         interface.receive_thread.join(timeout=1)
         interface.iostream.close()
 
+    summary_fields = ("total_us",) if args.mode == "queue" else FIELDS
     report = {
         "schema_version": 1,
         "clock": "firmware RTC; QEMU values are virtual time",
         "iterations": results,
-        "summary_us": _summarize(results),
+        "summary_us": _summarize(results, summary_fields),
     }
     print(json.dumps(report["summary_us"], indent=2))
     if args.output:

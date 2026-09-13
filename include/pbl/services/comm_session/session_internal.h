@@ -15,6 +15,12 @@
 
 typedef struct SessionSendQueueJob SessionSendQueueJob;
 
+#ifdef CONFIG_COMM_SESSION_QUEUE_RUST
+typedef struct {
+  size_t queued_bytes;
+} CommSessionQueueAccounting;
+#endif
+
 //! Data structure representing a Pebble Protocol communication session.
 //! There can be multiple. For example, with the iAP transport, the Pebble app has a session and
 //! 3rd party apps share another separate session as well. With PPoGATT, the Pebble app has its own
@@ -41,6 +47,10 @@ typedef struct CommSession {
 
   //! The send queue of this session. See session_send_queue.c
   SessionSendQueueJob *send_queue_head;
+#ifdef CONFIG_COMM_SESSION_QUEUE_RUST
+  SessionSendQueueJob *send_queue_tail;
+  CommSessionQueueAccounting send_queue_accounting;
+#endif
 
   ReceiveRouter recv_router;
 

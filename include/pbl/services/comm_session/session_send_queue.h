@@ -57,3 +57,9 @@ typedef struct SessionSendQueueJob {
 //! returning from this function. In that case, job will be set to NULL.
 //! bt_lock() does not have to be held by the caller.
 void comm_session_send_queue_add_job(CommSession *session, SessionSendQueueJob **job);
+
+#ifdef CONFIG_PERFORMANCE_TESTS
+#include "pbl/drivers/rtc.h"
+
+RtcTicks comm_session_send_queue_benchmark(uint32_t *checksum_out);
+#endif

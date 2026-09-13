@@ -16,6 +16,7 @@
 #include "pbl/services/notifications/notification_storage_private.h"
 #include "pbl/services/compositor/compositor.h"
 #include "pbl/services/compositor/compositor_display.h"
+#include "pbl/services/comm_session/session_send_queue.h"
 #include "pbl/services/system_task.h"
 #include "pbl/services/timeline/timeline.h"
 #include "pbl/util/uuid.h"
@@ -196,8 +197,16 @@ void command_latency_benchmark(const char *mode) {
     prompt_send_response("LATENCY_ARMED waiting for notification");
   } else if (strcmp(mode, "damage") == 0) {
     prv_run_damage_benchmark();
+  } else if (strcmp(mode, "queue") == 0) {
+    uint32_t checksum;
+    const RtcTicks elapsed = comm_session_send_queue_benchmark(&checksum);
+    char buffer[128];
+    prompt_send_response_fmt(buffer, sizeof(buffer),
+                             "QUEUE_RESULT version=1 total_us=%" PRIu64
+                             " checksum=%" PRIu32 " jobs=96 probes=2048",
+                             prv_ticks_to_us(elapsed), checksum);
   } else {
-    prompt_send_response("Usage: latency benchmark synthetic|storage|arm|damage");
+    prompt_send_response("Usage: latency benchmark synthetic|storage|arm|damage|queue");
   }
 }
 
