@@ -15,6 +15,7 @@
 #include "pbl/services/notifications/notifications.h"
 #include "pbl/services/notifications/notification_storage.h"
 #include "pbl/services/notifications/notification_storage_private.h"
+#include "services/filesystem/pfs_lookup.h"
 #include "pbl/services/compositor/compositor.h"
 #include "pbl/services/compositor/compositor_display.h"
 #include "services/compositor/legacy_scaler.h"
@@ -235,9 +236,26 @@ void command_latency_benchmark(const char *mode) {
                              "ACCEL_RESULT version=1 total_us=%" PRIu64 " checksum=%" PRIu32
                              " batches=16384",
                              prv_ticks_to_us(elapsed), checksum);
+  } else if (strcmp(mode, "pfs") == 0) {
+    if (!pfs_lookup_benchmark_prepare()) {
+      prompt_send_response("PFS_ERROR could not prepare files");
+      return;
+    }
+    pfs_lookup_benchmark_reset();
+    const RtcTicks start = rtc_get_ticks();
+    const uint32_t checksum = pfs_lookup_benchmark_run(256);
+    const RtcTicks elapsed = rtc_get_ticks() - start;
+    PFSLookupBenchmark result;
+    pfs_lookup_benchmark_get(&result);
+    char buffer[192];
+    prompt_send_response_fmt(buffer, sizeof(buffer),
+                             "PFS_RESULT version=1 total_us=%" PRIu64 " checksum=%" PRIu32
+                             " opens=256 scans=%" PRIu32 " reads=%" PRIu32 " hits=%" PRIu32,
+                             prv_ticks_to_us(elapsed), checksum, result.scanned_pages,
+                             result.name_reads, result.cache_hits);
   } else {
     prompt_send_response(
-        "Usage: latency benchmark synthetic|storage|arm|damage|queue|heap|scaler|accel");
+        "Usage: latency benchmark synthetic|storage|arm|damage|queue|heap|scaler|accel|pfs");
   }
 }
 
