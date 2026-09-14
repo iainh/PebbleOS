@@ -20,6 +20,7 @@
 #include <ipc_queue.h>
 
 #include "pbl/kernel/idle.h"
+#include "tickless.h"
 
 // HAL tick counter (milliseconds) - used by HAL timeout functions
 extern __IO uint32_t uwTick;
@@ -51,13 +52,13 @@ static const uint32_t MIN_DEEPSLEEP_TICKS = RTC_TICKS_HZ / 20;
 static const uint32_t MAX_LPTIM_CNT = 0xFFFFFFUL;
 
 static uint32_t s_iser_bak[16];
+static uint32_t s_wdt_feed_ticks;
+#define WDT_FEED_TICKS (RTC_TICKS_HZ / (1000 / TASK_WATCHDOG_FEED_PERIOD_MS))
 
-static void prv_wdt_feed(uint16_t elapsed_ticks) {
-  static uint32_t wdt_feed_ticks;
-
-  wdt_feed_ticks += elapsed_ticks;
-  if (wdt_feed_ticks >= (RTC_TICKS_HZ / (1000 / TASK_WATCHDOG_FEED_PERIOD_MS))) {
-    wdt_feed_ticks = 0U;
+static void prv_wdt_feed(uint32_t elapsed_ticks) {
+  s_wdt_feed_ticks += elapsed_ticks;
+  if (s_wdt_feed_ticks >= WDT_FEED_TICKS) {
+    s_wdt_feed_ticks %= WDT_FEED_TICKS;
     task_watchdog_feed();
   }
 }
@@ -180,6 +181,64 @@ static uint32_t prv_calc_elapsed_ticks(uint32_t gtimer_cyc) {
   return elapsed_ticks;
 }
 
+// Keep the high-resolution clock for shallow sleep; only suppress interrupts.
+// PRIMASK stays set until accounting and the periodic tick are restored.
+static void prv_tickless_wfi(pbl_tick_t max_ticks, bool deep) {
+  const uint32_t ctrl = SysTick->CTRL;
+  SysTick->CTRL = ctrl & ~SysTick_CTRL_ENABLE_Msk;
+  uint32_t remaining = SysTick->VAL;
+  if (!remaining || (SCB->ICSR & SCB_ICSR_PENDSTSET_Msk)) {
+    SysTick->CTRL = ctrl;
+    return;
+  }
+
+  uint32_t period = sf32lb_idle_cycles(max_ticks, remaining);
+  SysTick->LOAD = period - 1;
+  SysTick->VAL = 0;
+  SysTick->CTRL = ctrl;
+  while (!SysTick->VAL) {
+  }
+
+  __DSB();
+  if (deep) {
+    prv_enter_deepwfi();
+  } else {
+    prv_enter_wfi();
+  }
+  __ISB();
+
+  uint32_t status = SysTick->CTRL;
+  SysTick->CTRL = ctrl & ~SysTick_CTRL_ENABLE_Msk;
+  status |= SysTick->CTRL;
+  uint32_t elapsed = sf32lb_idle_elapsed(period, remaining, SysTick->VAL,
+                                         status & SysTick_CTRL_COUNTFLAG_Msk, &remaining);
+  SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk;
+
+  // Preload on HCLK, then stop before installing the full external-clock reload.
+  // A tiny partial tick may expire here: retain its pending IRQ, but discard
+  // any repeated partial reload (the FreeRTOS external-clock restart protocol).
+  const uint32_t core_stopped = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk;
+  SysTick->LOAD = remaining;
+  SysTick->VAL = 0;
+  SysTick->CTRL = core_stopped | SysTick_CTRL_ENABLE_Msk;
+  SysTick->CTRL = core_stopped;
+  if (SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) {
+    SysTick->VAL = 0;
+  }
+  SysTick->LOAD = SF32LB_TICK_CYCLES - 1;
+  SysTick->CTRL = ctrl;
+
+  pbl_idle_slept(elapsed);
+  uwTick += elapsed;
+  prv_wdt_feed(elapsed);
+  if (deep) {
+    s_analytics_deepwfi_ticks += elapsed;
+  } else {
+    s_analytics_wfi_ticks += elapsed;
+  }
+  s_last_sleep_type = SleepTypeNone;
+}
+
 void pbl_soc_idle(pbl_tick_t max_ticks) {
   if (!idle_is_allowed()) {
     return;
@@ -192,7 +251,9 @@ void pbl_soc_idle(pbl_tick_t max_ticks) {
 
   __disable_irq();
 
-  if (pbl_idle_confirm()) {
+  // The watchdog is also a deadline; the cap bounds LPTIM/SysTick arithmetic.
+  max_ticks = MIN(pbl_idle_ticks(), WDT_FEED_TICKS - s_wdt_feed_ticks);
+  if (max_ticks >= 2) {
     SocSf32lbSleepLevel max_level = soc_sf32lb_sleep_max_level();
 
     // Deep sleep needs a minimum idle window.
@@ -207,10 +268,10 @@ void pbl_soc_idle(pbl_tick_t max_ticks) {
 
     switch (max_level) {
       case SOC_SF32LB_WFI:
-        prv_enter_wfi();
+        prv_tickless_wfi(max_ticks, false);
         break;
       case SOC_SF32LB_DEEPWFI:
-        prv_enter_deepwfi();
+        prv_tickless_wfi(max_ticks, true);
         break;
       case SOC_SF32LB_DEEPSLEEP: {
         uint32_t gtimer_start;
