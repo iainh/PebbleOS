@@ -19,6 +19,10 @@ bool pbl_soc_tick_enable(void);
 //! to sleep. Call with interrupts masked.
 bool pbl_idle_confirm(void);
 
+//! Re-read the next timeout with interrupts masked, immediately before sleep.
+//! Returns zero if a runnable thread needs the CPU (including an idle peer).
+pbl_tick_t pbl_idle_ticks(void);
+
 //! Accounts @p elapsed ticks of sleep during which no tick interrupt ran.
 void pbl_idle_slept(pbl_tick_t elapsed);
 

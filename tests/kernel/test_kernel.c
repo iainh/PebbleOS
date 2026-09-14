@@ -7,6 +7,8 @@
 #include "pbl/os/assert.h"
 
 #include "kernel_test.h"
+#include "kernel.h"
+#include "pbl/kernel/idle.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -134,6 +136,34 @@ void test_kernel__tick_time_slices(void) {
   prv_spawn(1, "b", 2, prv_spin_entry, (void *)'B');
   pbl_test_kernel_run();
   cl_assert_equal_s(s_trace, "ABABABAB");
+}
+
+static void prv_idle_peer(void *arg) {
+  pbl_irq_lock();
+  sched_yield_current();
+  // IDLE is now first in the ready queue, but this peer still needs a quantum.
+  cl_assert(!pbl_idle_confirm());
+  cl_assert_equal_i(pbl_idle_ticks(), 0);
+  pbl_irq_unlock();
+  pbl_test_kernel_stop();
+}
+
+void test_kernel__idle_peer_prevents_tick_suppression(void) {
+  prv_spawn(0, "peer", PBL_PRIO_IDLE, prv_idle_peer, NULL);
+  pbl_test_kernel_run();
+}
+
+static void prv_wrap_sleeper(void *arg) {
+  pbl_idle_slept(UINT32_MAX - 3);
+  cl_assert_equal_i(pbl_uptime_ticks(), UINT32_MAX - 3);
+  pbl_thread_sleep(PBL_TICKS(9));
+  cl_assert_equal_i(pbl_uptime_ticks(), 5);
+  pbl_test_kernel_stop();
+}
+
+void test_kernel__idle_elapsed_crosses_tick_wrap(void) {
+  prv_spawn(0, "wrap", 2, prv_wrap_sleeper, NULL);
+  pbl_test_kernel_run();
 }
 
 // ---- semaphores -------------------------------------------------------------

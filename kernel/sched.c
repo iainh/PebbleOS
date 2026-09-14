@@ -336,7 +336,7 @@ void sched_tick(void) {
 }
 
 bool sched_idle_confirm(void) {
-  return prv_pick() == &s_idle_thread && !s_switch_deferred;
+  return prv_pick() == &s_idle_thread && !s_idle_thread.backend.next && !s_switch_deferred;
 }
 
 void sched_idle_slept(pbl_tick_t elapsed) {
@@ -431,7 +431,13 @@ void pbl_thread_sleep(pbl_timeout_t timeout) {
 
 // ---- idle interface ---------------------------------------------------------
 
-bool pbl_idle_confirm(void) { return sched_idle_confirm(); }
+bool pbl_idle_confirm(void) {
+  return sched_idle_confirm();
+}
+
+pbl_tick_t pbl_idle_ticks(void) {
+  return sched_idle_confirm() ? prv_ticks_until_next_timeout() : 0;
+}
 
 void pbl_idle_slept(pbl_tick_t elapsed) {
   pbl_irq_lock();
