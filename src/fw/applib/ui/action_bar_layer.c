@@ -165,16 +165,49 @@ void prv_draw_background_round(ActionBarLayer *action_bar, GContext *ctx, GColor
 }
 
 void action_bar_update_proc(ActionBarLayer *action_bar, GContext* ctx) {
-  const GColor bg_color = action_bar->background_color;
+  GColor bg_color = action_bar->background_color;
+#ifdef CONFIG_PLATFORM_EMERY
+  if (!gcolor_is_transparent(bg_color)) {
+    bg_color = GColorLightGray;
+  }
+#endif
   if (!gcolor_is_transparent(bg_color)) {
     graphics_context_set_fill_color(ctx, bg_color);
     PBL_IF_RECT_ELSE(prv_draw_background_rect,
                      prv_draw_background_round)(action_bar, ctx, bg_color);
+#ifdef CONFIG_PLATFORM_EMERY
+    const int16_t width = action_bar->layer.bounds.size.w;
+    const int16_t height = action_bar->layer.bounds.size.h;
+    GRect edge = GRect(0, 0, width, 1);
+    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_fill_rect(ctx, &edge);
+    graphics_context_set_fill_color(ctx, GColorBlack);
+    edge = GRect(0, 0, 1, height);
+    graphics_fill_rect(ctx, &edge);
+    edge = GRect(width - 1, 0, 1, height);
+    graphics_fill_rect(ctx, &edge);
+    edge = GRect(0, height - 1, width, 1);
+    graphics_fill_rect(ctx, &edge);
+    const int16_t section_height = action_bar->layer.bounds.size.h / NUM_ACTION_BAR_ITEMS;
+    for (int16_t y = section_height; y < action_bar->layer.bounds.size.h; y += section_height) {
+      edge = GRect(0, y, width, 1);
+      graphics_fill_rect(ctx, &edge);
+    }
+#endif
   }
 
   for (unsigned int index = 0; index < NUM_ACTION_BAR_ITEMS; ++index) {
     const GBitmap *icon = action_bar->icons[index];
     if (icon) {
+#ifdef CONFIG_PLATFORM_EMERY
+      if (action_bar_is_highlighted(action_bar, index)) {
+        const int16_t section_height = action_bar->layer.bounds.size.h / NUM_ACTION_BAR_ITEMS;
+        GRect section = GRect(1, index * section_height + 1,
+                              action_bar->layer.bounds.size.w - 2, section_height - 1);
+        graphics_context_set_fill_color(ctx, GColorBlueMoon);
+        graphics_fill_rect(ctx, &section);
+      }
+#endif
       GRect rect = GRect(1, 0, prv_width(), MAX_ICON_HEIGHT);
       const int button_id = index + 1;
       const int vertical_icon_margin = prv_vertical_icon_margin();
@@ -223,9 +256,22 @@ void action_bar_update_proc(ActionBarLayer *action_bar, GContext* ctx) {
       // We use GCompOpAssign on 1-bit images, because they still support the old operations.
       // We use GCompOpSet otherwise to ensure we support transparency.
       if (gbitmap_get_format(icon) == GBitmapFormat1Bit) {
+#ifdef CONFIG_PLATFORM_EMERY
+        graphics_context_set_compositing_mode(ctx, action_bar_is_highlighted(action_bar, index)
+                                                       ? GCompOpAssign
+                                                       : GCompOpAssignInverted);
+#else
         graphics_context_set_compositing_mode(ctx, GCompOpAssign);
+#endif
       } else {
+#ifdef CONFIG_PLATFORM_EMERY
+        graphics_context_set_compositing_mode(ctx, GCompOpTint);
+        graphics_context_set_tint_color(ctx, action_bar_is_highlighted(action_bar, index)
+                                                 ? GColorWhite
+                                                 : GColorBlack);
+#else
         graphics_context_set_compositing_mode(ctx, GCompOpSet);
+#endif
       }
       graphics_draw_bitmap_in_rect(ctx, (GBitmap*)icon, &icon_rect);
     }

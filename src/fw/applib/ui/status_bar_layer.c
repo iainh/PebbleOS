@@ -135,8 +135,13 @@ void status_bar_layer_init(StatusBarLayer *status_bar_layer) {
   event_service_client_subscribe(&(status_bar_layer->tick_event));
 
   status_bar_layer->config = (StatusBarLayerConfig){
+#ifdef CONFIG_PLATFORM_EMERY
+    .foreground_color = GColorBlack,
+    .background_color = GColorLightGray,
+#else
     .foreground_color = GColorWhite,
     .background_color = GColorBlack,
+#endif
     .separator.mode = StatusBarLayerSeparatorModeNone,
   };
 
@@ -404,6 +409,19 @@ void status_bar_layer_render(GContext *ctx, const GRect *bounds, StatusBarLayerC
   if (!gcolor_is_transparent(config->background_color)) {
     graphics_context_set_fill_color(ctx, config->background_color);
     graphics_fill_rect(ctx, bounds);
+#ifdef CONFIG_PLATFORM_EMERY
+    if (gcolor_equal(config->background_color, GColorLightGray)) {
+      GRect edge = GRect(x_offset_l, y_offset_top, x_offset_r - x_offset_l, 1);
+      graphics_context_set_fill_color(ctx, GColorWhite);
+      graphics_fill_rect(ctx, &edge);
+      edge.origin.y = y_offset_bottom - 2;
+      graphics_context_set_fill_color(ctx, GColorDarkGray);
+      graphics_fill_rect(ctx, &edge);
+      edge.origin.y = y_offset_bottom - 1;
+      graphics_context_set_fill_color(ctx, GColorBlack);
+      graphics_fill_rect(ctx, &edge);
+    }
+#endif
   }
 
   // Set context text color and compositing mode
@@ -418,12 +436,37 @@ void status_bar_layer_render(GContext *ctx, const GRect *bounds, StatusBarLayerC
 
   if (config->mode != StatusBarLayerModeCustomText) { // draw center text
     graphics_context_set_compositing_mode(ctx, GCompOpAssign);
+#ifdef CONFIG_PLATFORM_EMERY
+    if (config->mode == StatusBarLayerModeLoading &&
+        gcolor_equal(config->background_color, GColorLightGray)) {
+      const GFont title_font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+      const GFont clock_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
+      char clock_text[TITLE_TEXT_BUFFER_SIZE];
+      clock_copy_time_string(clock_text, sizeof(clock_text));
+      const int16_t text_y = y_offset_top - 2;
+      graphics_context_set_text_color(ctx, GColorBlack);
+      graphics_draw_text(ctx, config->title_text_buffer, title_font,
+                         GRect(x_offset_l + 6, text_y, bounds->size.w - 78, bounds->size.h),
+                         GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+      graphics_draw_text(ctx, clock_text, clock_font,
+                         GRect(x_offset_r - 70, text_y, 64, bounds->size.h),
+                         GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
+    } else
+#endif
+    {
     prv_status_bar_layer_render_text(ctx, config, x_offset_l, x_offset_r, y_offset_top,
                                      y_offset_bottom, config->title_text_buffer);
+    }
   } else { // TODO: here goes center text animations
   }
 
   // render info text
+#ifdef CONFIG_PLATFORM_EMERY
+  if (config->mode == StatusBarLayerModeLoading &&
+      gcolor_equal(config->background_color, GColorLightGray)) {
+    return;
+  }
+#endif
   GFont info_font = prv_get_text_format(config).font;
   // find width of info text
   GSize max_used_size = graphics_text_layout_get_max_used_size(ctx, config->info_text_buffer,

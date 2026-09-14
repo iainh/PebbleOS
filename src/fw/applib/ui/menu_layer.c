@@ -59,9 +59,17 @@ static bool prv_cancel_selection_animation(MenuLayer *menu_layer);
 
 //! How long the scrollbar overlay stays visible after the last touch scroll movement.
 #define MENU_LAYER_SCROLLBAR_HIDE_TIMEOUT_MS 1000
+#ifdef CONFIG_PLATFORM_EMERY
+#define MENU_LAYER_SCROLLBAR_WIDTH 11
+#define MENU_LAYER_SCROLLBAR_MARGIN 0
+#define MENU_LAYER_SCROLLBAR_MIN_THUMB_HEIGHT 16
+#define MENU_LAYER_SCROLLBAR_ARROW_HEIGHT 11
+#else
 #define MENU_LAYER_SCROLLBAR_WIDTH 3
 #define MENU_LAYER_SCROLLBAR_MARGIN 1
 #define MENU_LAYER_SCROLLBAR_MIN_THUMB_HEIGHT 8
+#define MENU_LAYER_SCROLLBAR_ARROW_HEIGHT 0
+#endif
 
 static void prv_scrollbar_cancel_hide_timer(MenuLayer *menu_layer) {
   if (menu_layer->scrollbar_hide_timer) {
@@ -179,7 +187,8 @@ T_STATIC GRect prv_scrollbar_thumb_rect(MenuLayer *menu_layer, int16_t content_t
   const GSize frame_size = menu_layer->scroll_layer.layer.frame.size;
   const int16_t content_h = scroll_layer_get_content_size(&menu_layer->scroll_layer).h;
   const int16_t scrollable_h = content_h - frame_size.h;
-  const int16_t track_h = frame_size.h - (2 * MENU_LAYER_SCROLLBAR_MARGIN);
+  const int16_t track_h = frame_size.h - (2 * MENU_LAYER_SCROLLBAR_MARGIN) -
+      (2 * MENU_LAYER_SCROLLBAR_ARROW_HEIGHT);
   if (scrollable_h <= 0 || track_h <= MENU_LAYER_SCROLLBAR_MIN_THUMB_HEIGHT) {
     return GRectZero;
   }
@@ -187,7 +196,7 @@ T_STATIC GRect prv_scrollbar_thumb_rect(MenuLayer *menu_layer, int16_t content_t
                                MENU_LAYER_SCROLLBAR_MIN_THUMB_HEIGHT, track_h);
   // Center-focused menus over-scroll past the ends (offset clipping disabled); clamp to the track.
   const int16_t progress_y = CLIP(content_top_y, 0, scrollable_h);
-  const int16_t thumb_y = MENU_LAYER_SCROLLBAR_MARGIN +
+  const int16_t thumb_y = MENU_LAYER_SCROLLBAR_MARGIN + MENU_LAYER_SCROLLBAR_ARROW_HEIGHT +
       (((int32_t)(track_h - thumb_h) * progress_y) / scrollable_h);
   return GRect(frame_size.w - MENU_LAYER_SCROLLBAR_MARGIN - MENU_LAYER_SCROLLBAR_WIDTH,
                content_top_y + thumb_y, MENU_LAYER_SCROLLBAR_WIDTH, thumb_h);
@@ -198,12 +207,56 @@ static void prv_scrollbar_draw(MenuLayer *menu_layer, GContext *ctx, int16_t con
   if (grect_is_empty(&thumb)) {
     return;
   }
+#ifdef CONFIG_PLATFORM_EMERY
+  const GSize frame_size = menu_layer->scroll_layer.layer.frame.size;
+  const int16_t x = frame_size.w - MENU_LAYER_SCROLLBAR_WIDTH;
+  const GRect track = GRect(x, content_top_y, MENU_LAYER_SCROLLBAR_WIDTH, frame_size.h);
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  graphics_fill_rect(ctx, &track);
+  const GRect track_inner = grect_inset_internal(track, 1, 1);
+  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_fill_rect(ctx, &track_inner);
+
+  const GRect up_box = GRect(x, content_top_y, MENU_LAYER_SCROLLBAR_WIDTH,
+                             MENU_LAYER_SCROLLBAR_ARROW_HEIGHT);
+  const GRect down_box = GRect(x, content_top_y + frame_size.h - MENU_LAYER_SCROLLBAR_ARROW_HEIGHT,
+                               MENU_LAYER_SCROLLBAR_WIDTH, MENU_LAYER_SCROLLBAR_ARROW_HEIGHT);
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  graphics_fill_rect(ctx, &up_box);
+  graphics_fill_rect(ctx, &down_box);
+  const GRect up_box_inner = grect_inset_internal(up_box, 1, 1);
+  const GRect down_box_inner = grect_inset_internal(down_box, 1, 1);
+  graphics_context_set_fill_color(ctx, GColorLightGray);
+  graphics_fill_rect(ctx, &up_box_inner);
+  graphics_fill_rect(ctx, &down_box_inner);
+  const int16_t center_x = x + MENU_LAYER_SCROLLBAR_WIDTH / 2;
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  for (int16_t i = 0; i < 3; ++i) {
+    GRect up_arrow_line = GRect(center_x - i, content_top_y + 4 + i, (2 * i) + 1, 1);
+    GRect down_arrow_line = GRect(center_x - i, content_top_y + frame_size.h - 5 - i,
+                                 (2 * i) + 1, 1);
+    graphics_fill_rect(ctx, &up_arrow_line);
+    graphics_fill_rect(ctx, &down_arrow_line);
+  }
+
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  graphics_fill_rect(ctx, &thumb);
+  const GRect thumb_inner = grect_inset_internal(thumb, 1, 1);
+  graphics_context_set_fill_color(ctx, GColorLightGray);
+  graphics_fill_rect(ctx, &thumb_inner);
+  const GRect thumb_top = GRect(thumb.origin.x + 1, thumb.origin.y + 1, thumb.size.w - 2, 1);
+  const GRect thumb_left = GRect(thumb.origin.x + 1, thumb.origin.y + 1, 1, thumb.size.h - 2);
+  graphics_context_set_fill_color(ctx, GColorWhite);
+  graphics_fill_rect(ctx, &thumb_top);
+  graphics_fill_rect(ctx, &thumb_left);
+#else
   // 1px halo around the thumb so it stays visible over both normal and highlighted cells
   const GRect halo = grect_inset_internal(thumb, -1, -1);
   graphics_context_set_fill_color(ctx, menu_layer->normal_colors[MenuLayerColorBackground]);
   graphics_fill_round_rect(ctx, &halo, 2, GCornersAll);
   graphics_context_set_fill_color(ctx, menu_layer->normal_colors[MenuLayerColorForeground]);
   graphics_fill_round_rect(ctx, &thumb, 1, GCornersAll);
+#endif
 }
 #endif  // PBL_ROUND
 
@@ -834,9 +887,23 @@ static void NOINLINE prv_draw_background(MenuLayer *menu_layer, GContext *ctx,
   } else if (highlight) {
     ctx->draw_state.fill_color = menu_layer->highlight_colors[MenuLayerColorBackground];
     graphics_fill_rect(ctx, bounds);
+#ifdef CONFIG_PLATFORM_EMERY
+    GRect edge = GRect(bounds->origin.x, bounds->origin.y, bounds->size.w, 1);
+    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_fill_rect(ctx, &edge);
+    edge.origin.y = bounds->origin.y + bounds->size.h - 1;
+    graphics_context_set_fill_color(ctx, GColorBlack);
+    graphics_fill_rect(ctx, &edge);
+#endif
   } else {
     ctx->draw_state.fill_color = menu_layer->normal_colors[MenuLayerColorBackground];
     graphics_fill_rect(ctx, bounds);
+#ifdef CONFIG_PLATFORM_EMERY
+    const GRect edge = GRect(bounds->origin.x, bounds->origin.y + bounds->size.h - 1,
+                             bounds->size.w, 1);
+    graphics_context_set_fill_color(ctx, GColorLightGray);
+    graphics_fill_rect(ctx, &edge);
+#endif
   }
 
   graphics_context_set_drawing_state(ctx, prev_state);
@@ -919,7 +986,11 @@ void menu_layer_update_proc(Layer *scroll_content_layer, GContext* ctx) {
 
   task_free(render_iter);
 
+#ifdef CONFIG_PLATFORM_EMERY
+  if (!menu_layer->scrollbar_hidden) {
+#else
   if (menu_layer->scrollbar_visible) {
+#endif
     prv_scrollbar_draw(menu_layer, ctx, content_top_y);
   }
 }
@@ -956,7 +1027,11 @@ void menu_layer_init(MenuLayer *menu_layer, const GRect *frame) {
   scroll_layer_set_context(scroll_layer, menu_layer);
 
   menu_layer_set_normal_colors(menu_layer, GColorWhite, GColorBlack);
+#ifdef CONFIG_PLATFORM_EMERY
+  menu_layer_set_highlight_colors(menu_layer, GColorBlueMoon, GColorWhite);
+#else
   menu_layer_set_highlight_colors(menu_layer, GColorBlack, GColorWhite);
+#endif
 
   InverterLayer *inverter = &menu_layer->inverter;
   inverter_layer_init(inverter, &GRectZero);

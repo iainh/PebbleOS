@@ -23,7 +23,7 @@
   /*basalt*/ 16, \
   /*chalk*/ 24, \
   /*diorite*/ 16, \
-  /*emery*/ 20, \
+  /*emery*/ 24, \
   /*flint*/ 16, \
   /*gabbro*/ 20)
 
@@ -37,7 +37,7 @@
   /*basalt*/ 20, \
   /*chalk*/ 24, /* already tall enough; only the font grows */ \
   /*diorite*/ 20, \
-  /*emery*/ 26, \
+  /*emery*/ 28, \
   /*flint*/ 20, \
   /*gabbro*/ 26)
 

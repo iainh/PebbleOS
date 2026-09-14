@@ -40,6 +40,24 @@ void window_do_layer_update_proc(Layer *layer, GContext* ctx) {
     GDrawState prev_state = graphics_context_get_drawing_state(ctx);
     graphics_context_set_fill_color(ctx, bg_color);
     graphics_fill_rect(ctx, &layer->bounds);
+#ifdef CONFIG_PLATFORM_EMERY
+    if (gcolor_equal(bg_color, GColorLightGray)) {
+      GRect edge = GRect(layer->bounds.origin.x, layer->bounds.origin.y,
+                         layer->bounds.size.w, 1);
+      graphics_context_set_fill_color(ctx, GColorWhite);
+      graphics_fill_rect(ctx, &edge);
+      edge = GRect(layer->bounds.origin.x, layer->bounds.origin.y, 1, layer->bounds.size.h);
+      graphics_fill_rect(ctx, &edge);
+      graphics_context_set_fill_color(ctx, GColorBlack);
+      edge = GRect(layer->bounds.origin.x + layer->bounds.size.w - 1,
+                   layer->bounds.origin.y, 1, layer->bounds.size.h);
+      graphics_fill_rect(ctx, &edge);
+      edge = GRect(layer->bounds.origin.x,
+                   layer->bounds.origin.y + layer->bounds.size.h - 1,
+                   layer->bounds.size.w, 1);
+      graphics_fill_rect(ctx, &edge);
+    }
+#endif
     graphics_context_set_drawing_state(ctx, prev_state);
   }
 }
