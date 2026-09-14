@@ -60,6 +60,40 @@ that forwards to the SoC's `pbl_soc_idle()` when the gap is at least two
 ticks, and the SoC reports the sleep back with `pbl_idle_slept()`, which
 advances the clock and expires timeouts.
 
+**Tick suppression.** nRF52 and SF32LB52 re-read `pbl_idle_ticks()` with
+interrupts masked before sleeping. A runnable idle-priority peer prevents
+suppression. Active threads retain the periodic tick and its one-tick
+round-robin quantum; this is tickless idle, not an active tickless scheduler.
+
+- nRF52 uses the RTC compare alarm for both shallow and full sleep when the
+  idle window is at least five ticks. The independent watchdog compare stays
+  enabled. Resume accounts the difference from the last delivered RTC tick,
+  including pending ticks at entry and 24-bit counter wrap. It does not add
+  the sleep interval a second time. Short gaps retain the periodic tick.
+- SF32LB52 stretches SysTick in WFI/deep WFI to the earlier of the next
+  timeout and watchdog feed. Its external 1.92 MHz clock keeps running.
+  Early wake preserves the partial tick; elapsed whole ticks advance both
+  kernel uptime and HAL `uwTick`. Deep sleep retains LPTIM/GTIMER accounting,
+  also capped by the watchdog deadline. Sleep restrictions still select the
+  power state independently of tick suppression.
+
+SF32's partial-tick restart follows the corrected
+[FreeRTOS external-clock protocol](https://github.com/FreeRTOS/FreeRTOS-Kernel/commit/195a351ec797ba434c0e00fbba1d1f6adb74e279):
+briefly preload on HCLK, stop, discard a repeated tiny reload if it expired,
+then restore the full reload and external clock. A pending partial-tick
+interrupt must survive this sequence. Counter-stop and preload overhead
+introduce timing slippage; this is not a zero-drift clock source. COUNTFLAG
+also cannot reconstruct multiple complete suppressed intervals, so wake
+handling must stop the counter before its second expiry.
+
+Before hardware deployment, measure interrupt counts, timeout error and
+long-run drift on both boards. Exercise forced WFI, deep WFI/full sleep,
+peripheral wake immediately before/after the deadline, a pending tick at
+entry, SF32 one-cycle partial reloads, RTC wrap, equal-priority CPU-bound
+threads and watchdog failure detection. Host tests cover scheduler behaviour
+and SysTick arithmetic, not register synchronization, current draw or those
+hardware timing bounds.
+
 **Threads.** `struct pbl_thread` is caller-owned; the backend state lives in
 its `backend` member, first in the struct so the arch code can find the
 saved stack pointer at offset zero. Stacks are filled with a pattern at
@@ -197,7 +231,9 @@ comes out of the FreeRTOS heap instead.
 
 ## Verification
 
-- `tests/kernel/test_kernel`: 18 host tests on the POSIX arch.
+- `tests/kernel/test_kernel`: 20 host tests on the POSIX arch.
+- `tests/kernel/test_tickless`: four SF32 SysTick arithmetic tests, including
+  an exhaustive sweep of the 1920 possible partial-tick phases.
 - qemu_gabbro and qemu_flint: boot to the watchface, launch an app from the
   launcher and back out, a gdb breakpoint sweep on every assert and fault
   entry point, and the benchmark suite. Not yet run on real hardware.
