@@ -214,12 +214,6 @@
         "size_3x_padding": 16,
         "size_3x": 32
     }, {
-        "name": "MenuRenderIterator",
-        "size_2x": 104,
-        "size_3x_padding": 0,
-        "size_3x": 112,
-        "dependencies": ["Layer"]
-    }, {
         "name": "EventServiceInfo",
         "size_3x_padding": 20,
         "size_3x": 37,

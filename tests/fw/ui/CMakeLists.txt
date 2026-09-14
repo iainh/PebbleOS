@@ -229,6 +229,7 @@ pbl_clar_test(test_menu_layer
     src/fw/applib/graphics/gtypes.c
     tests/fakes/fake_rtc.c
     tests/stubs/stubs_animation.c
+  OVERRIDES menu_render_tracking
   DEFINES CONFIG_TOUCH
 )
 

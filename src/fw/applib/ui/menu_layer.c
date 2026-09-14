@@ -11,7 +11,6 @@
 #include "applib/ui/click.h"
 #include "applib/ui/window.h"
 #include "applib/legacy2/ui/menu_layer_legacy2.h"
-#include "kernel/pbl_malloc.h"
 #include "process_management/process_manager.h"
 #include <pbl/logging/logging.h>
 #include "system/passert.h"
@@ -860,15 +859,12 @@ void menu_layer_update_proc(Layer *scroll_content_layer, GContext* ctx) {
     graphics_fill_rect(ctx, &menu_layer->inverter.layer.frame);
   }
 
-  MenuRenderIterator *render_iter = applib_type_malloc(MenuRenderIterator);
-  PBL_ASSERTN(render_iter);
-
   if (menu_layer->center_focused) {
     // in this mode, the selected row is always the best candidate for the cache
     menu_layer->cache.cursor = menu_layer->selection;
   }
 
-  *render_iter = (MenuRenderIterator) {
+  MenuRenderIterator render_iter = {
     .it = {
       .menu_layer = menu_layer,
       .cursor = menu_layer->cache.cursor,
@@ -891,9 +887,12 @@ void menu_layer_update_proc(Layer *scroll_content_layer, GContext* ctx) {
           .w = frame_size.w,
         },
       },
+      // Behave as a child for coordinate conversion without mutating the live layer tree.
+      // Stack-local state also preserves recursive rendering from client callbacks.
+      .parent = &menu_layer->scroll_layer.content_sublayer,
+      .window = menu_layer->scroll_layer.content_sublayer.window,
     },
   };
-  layer_add_child(&menu_layer->scroll_layer.content_sublayer, &render_iter->cell_layer);
 
   // Set separator color
   graphics_context_set_fill_color(ctx, GColorBlack);
@@ -903,21 +902,18 @@ void menu_layer_update_proc(Layer *scroll_content_layer, GContext* ctx) {
   const int16_t content_center_y = (content_top_y + content_bottom_y) / 2;
   if (content_center_y >= menu_layer->cache.cursor.y) {
     // Walk downward from cache.cursor, then upward
-    prv_menu_layer_walk_downward_from_iterator(&render_iter->it);
-    render_iter->it.cursor = menu_layer->cache.cursor;
-    prv_menu_layer_walk_upward_from_iterator(&render_iter->it);
+    prv_menu_layer_walk_downward_from_iterator(&render_iter.it);
+    render_iter.it.cursor = menu_layer->cache.cursor;
+    prv_menu_layer_walk_upward_from_iterator(&render_iter.it);
   } else {
     // Walk upward from cache.cursor, then downward
-    prv_menu_layer_walk_upward_from_iterator(&render_iter->it);
-    render_iter->it.cursor = menu_layer->cache.cursor;
-    prv_menu_layer_walk_downward_from_iterator(&render_iter->it);
+    prv_menu_layer_walk_upward_from_iterator(&render_iter.it);
+    render_iter.it.cursor = menu_layer->cache.cursor;
+    prv_menu_layer_walk_downward_from_iterator(&render_iter.it);
   }
-  layer_remove_from_parent(&render_iter->cell_layer);
 
   // Assign the new cache:
-  menu_layer->cache.cursor = render_iter->new_cache;
-
-  task_free(render_iter);
+  menu_layer->cache.cursor = render_iter.new_cache;
 
   if (menu_layer->scrollbar_visible) {
     prv_scrollbar_draw(menu_layer, ctx, content_top_y);

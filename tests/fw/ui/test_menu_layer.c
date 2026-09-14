@@ -20,6 +20,24 @@
 #include "fake_rtc.h"
 #include "pbl/drivers/rtc.h"
 
+static unsigned int s_applib_alloc_count;
+static unsigned int s_applib_free_count;
+
+void *test_applib_malloc(size_t size) {
+  s_applib_alloc_count++;
+  return malloc(size);
+}
+
+void *test_applib_zalloc(size_t size) {
+  s_applib_alloc_count++;
+  return calloc(1, size);
+}
+
+void test_applib_free(void *ptr) {
+  s_applib_free_count++;
+  free(ptr);
+}
+
 // Stubs
 /////////////////////
 #include "stubs_app_state.h"
@@ -180,6 +198,8 @@ bool animation_set_handlers(Animation *animation, AnimationHandlers callbacks, v
 
 void test_menu_layer__initialize(void) {
   s_num_rows = 10;
+  s_applib_alloc_count = 0;
+  s_applib_free_count = 0;
   fake_app_timer_init();
   fake_rtc_init(0, 0);
   s_anim_to = GPointZero;
@@ -544,6 +564,11 @@ void test_menu_layer__center_focused_handles_skipped_rows_animated(void) {
 }
 
 static MenuLayer s_menu_layer_hierarchy;
+static int s_render_depth;
+static int s_render_callback_count;
+static int16_t s_render_row_stride;
+static MenuIndex s_rendered_indices[8];
+static Layer *s_render_first_child;
 
 static void prv_menu_cell_is_part_of_hierarchy_draw_row(GContext* ctx,
                                                         const Layer *cell_layer,
@@ -555,6 +580,32 @@ static void prv_menu_cell_is_part_of_hierarchy_draw_row(GContext* ctx,
   const GPoint expected = layer_convert_point_to_screen(&s_menu_layer_hierarchy.scroll_layer.layer,
                                                         GPoint(0, cell_index->row * 44));
   cl_assert_equal_gpoint(actual, expected);
+}
+
+static void prv_reentrant_draw_row(GContext *ctx, const Layer *cell_layer,
+                                   MenuIndex *cell_index, void *callback_context) {
+  MenuLayer *menu_layer = callback_context;
+  cl_assert_equal_p(cell_layer->window, menu_layer->scroll_layer.layer.window);
+  cl_assert_equal_p(cell_layer->parent, &menu_layer->scroll_layer.content_sublayer);
+  cl_assert_equal_p(cell_layer->first_child, NULL);
+  cl_assert_equal_p(cell_layer->next_sibling, NULL);
+  cl_assert_equal_p(menu_layer->scroll_layer.content_sublayer.first_child,
+                    s_render_first_child);
+  cl_assert_equal_grect(cell_layer->bounds, GRect(0, 0, 100, 44));
+  cl_assert_equal_grect(cell_layer->frame,
+                        GRect(0, cell_index->row * s_render_row_stride, 100, 44));
+  cl_assert_equal_gpoint(
+      layer_convert_point_to_screen(cell_layer, GPointZero),
+      layer_convert_point_to_screen(&menu_layer->scroll_layer.content_sublayer,
+                                    cell_layer->frame.origin));
+
+  s_rendered_indices[s_render_callback_count++] = *cell_index;
+  if (s_render_depth == 0 && cell_index->row == 0) {
+    s_render_depth++;
+    menu_layer->scroll_layer.content_sublayer.update_proc(
+        &menu_layer->scroll_layer.content_sublayer, ctx);
+    s_render_depth--;
+  }
 }
 
 int prv_num_sublayers(const Layer *l) {
@@ -581,6 +632,48 @@ void test_menu_layer__menu_cell_is_part_of_hierarchy(void) {
   cl_assert_equal_i(2, prv_num_sublayers(layer));
   layer->update_proc(layer, &ctx);
   cl_assert_equal_i(2, prv_num_sublayers(layer));
+}
+
+static void prv_assert_render_is_allocation_free_and_reentrant(bool legacy) {
+  process_manager_set_compiled_with_legacy2_sdk(legacy);
+  MenuLayer menu_layer;
+  menu_layer_init(&menu_layer, &GRect(10, 10, 100, 180));
+  menu_layer_set_callbacks(&menu_layer, &menu_layer, &(MenuLayerCallbacks) {
+    .draw_row = prv_reentrant_draw_row,
+    .get_num_rows = prv_get_num_rows,
+  });
+  s_num_rows = 3;
+  menu_layer_reload_data(&menu_layer);
+
+  Layer *content_layer = &menu_layer.scroll_layer.content_sublayer;
+  Layer *first_child = content_layer->first_child;
+  GContext ctx = {};
+  s_render_depth = 0;
+  s_render_callback_count = 0;
+  s_render_row_stride = legacy ? 45 : 44;
+  s_render_first_child = first_child;
+  s_applib_alloc_count = 0;
+  s_applib_free_count = 0;
+
+  content_layer->update_proc(content_layer, &ctx);
+
+  cl_assert_equal_i(s_applib_alloc_count, 0);
+  cl_assert_equal_i(s_applib_free_count, 0);
+  cl_assert_equal_p(content_layer->first_child, first_child);
+  cl_assert_equal_i(s_render_callback_count, 6);
+  const MenuIndex expected[] = {
+    MenuIndex(0, 0), MenuIndex(0, 0), MenuIndex(0, 1),
+    MenuIndex(0, 2), MenuIndex(0, 1), MenuIndex(0, 2),
+  };
+  for (size_t i = 0; i < sizeof(expected) / sizeof(expected[0]); i++) {
+    cl_assert_equal_i(menu_index_compare(&s_rendered_indices[i], &expected[i]), 0);
+  }
+  cl_assert_equal_i(menu_layer.cache.cursor.index.row, 0);
+}
+
+void test_menu_layer__render_is_allocation_free_and_reentrant(void) {
+  prv_assert_render_is_allocation_free_and_reentrant(false);
+  prv_assert_render_is_allocation_free_and_reentrant(true);
 }
 
 void test_menu_layer__center_focused_updates_height_on_reload(void) {
