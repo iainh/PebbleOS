@@ -51,7 +51,7 @@ typedef struct NotificationsData {
   LoadedNotificationNode *loaded_notification_list;
   EventServiceInfo notification_event_info;
   ActionableDialog *actionable_dialog;
-#if PBL_ROUND
+#if PBL_ROUND || defined(CONFIG_PLATFORM_EMERY)
   StatusBarLayer status_bar_layer;
 #endif
 } NotificationsData;
@@ -700,8 +700,12 @@ static void prv_window_disappear(Window *window) {
 static void prv_window_load(Window *window) {
   NotificationsData *data = window_get_user_data(window);
   MenuLayer *menu_layer = &data->menu_layer;
-  const GRect menu_layer_frame = PBL_IF_RECT_ELSE(
+  GRect menu_layer_frame = PBL_IF_RECT_ELSE(
       window->layer.bounds, grect_inset_internal(window->layer.bounds, 0, STATUS_BAR_LAYER_HEIGHT));
+#ifdef CONFIG_PLATFORM_EMERY
+  menu_layer_frame.origin.y += STATUS_BAR_LAYER_HEIGHT;
+  menu_layer_frame.size.h -= STATUS_BAR_LAYER_HEIGHT;
+#endif
   menu_layer_init(menu_layer, &menu_layer_frame);
   menu_layer_set_callbacks(menu_layer, data, &(MenuLayerCallbacks) {
       .get_num_rows = prv_get_num_rows_callback,
@@ -711,9 +715,13 @@ static void prv_window_load(Window *window) {
   });
 
   menu_layer_set_normal_colors(menu_layer, GColorWhite, GColorBlack);
+#ifdef CONFIG_PLATFORM_EMERY
+  menu_layer_set_highlight_colors(menu_layer, GColorBlueMoon, GColorWhite);
+#else
   menu_layer_set_highlight_colors(menu_layer,
                                   PBL_IF_COLOR_ELSE(DEFAULT_NOTIFICATION_COLOR, GColorBlack),
                                   GColorWhite);
+#endif
 
   menu_layer_set_click_config_onto_window(menu_layer, window);
   menu_layer_set_scroll_wrap_around(menu_layer, shell_prefs_get_menu_scroll_wrap_around_enable());
@@ -724,9 +732,15 @@ static void prv_window_load(Window *window) {
   TextLayer *text_layer = &data->text_layer;
   const int16_t horizontal_margin = 5;
   const GFont font = system_theme_get_font_for_default_size(TextStyleFont_MenuCellTitle);
+#ifdef CONFIG_PLATFORM_EMERY
+  const int16_t status_bar_offset = STATUS_BAR_LAYER_HEIGHT / 2;
+#else
+  const int16_t status_bar_offset = 0;
+#endif
   // configure text layer to be vertically aligned (15 is hacking around our poor fonts)
   text_layer_init_with_parameters(text_layer,
-                                  &GRect(horizontal_margin, window->layer.bounds.size.h / 2 - 15,
+                                  &GRect(horizontal_margin,
+                                         window->layer.bounds.size.h / 2 - 15 + status_bar_offset,
                                          window->layer.bounds.size.w - horizontal_margin,
                                          window->layer.bounds.size.h / 2),
                                   i18n_get("No notifications", data), font, GColorBlack,
@@ -734,12 +748,19 @@ static void prv_window_load(Window *window) {
                                   GTextOverflowModeTrailingEllipsis);
   layer_add_child(&window->layer, text_layer_get_layer(text_layer));
 
-#if PBL_ROUND
+#if PBL_ROUND || defined(CONFIG_PLATFORM_EMERY)
+#ifdef CONFIG_PLATFORM_EMERY
+  GColor bg_color = GColorLightGray;
+#else
   GColor bg_color = GColorClear;
+#endif
   GColor fg_color = GColorBlack;
 
   StatusBarLayer *status_bar = &data->status_bar_layer;
   status_bar_layer_init(status_bar);
+#ifdef CONFIG_PLATFORM_EMERY
+  status_bar_layer_set_title(status_bar, i18n_get("Notifications", data), false, false);
+#endif
   status_bar_layer_set_colors(status_bar, bg_color, fg_color);
   layer_add_child(&window->layer, &status_bar->layer);
 #endif
@@ -782,7 +803,7 @@ static void prv_handle_init(void) {
 
 static void prv_handle_deinit(void) {
   NotificationsData *data = app_state_get_user_data();
-#if PBL_ROUND
+#if PBL_ROUND || defined(CONFIG_PLATFORM_EMERY)
   status_bar_layer_deinit(&data->status_bar_layer);
 #endif
   menu_layer_deinit(&data->menu_layer);

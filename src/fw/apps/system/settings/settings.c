@@ -25,7 +25,7 @@
 #define SETTINGS_CATEGORY_MENU_NUM_UNFOCUSED_ROWS_PER_SIDE 1
 #endif
 
-#ifdef CONFIG_SETTINGS_ICONS
+#if defined(CONFIG_SETTINGS_ICONS) || defined(CONFIG_PLATFORM_EMERY)
 // Icon resource IDs for each settings menu item (RESOURCE_ID_INVALID means no icon)
 static const uint32_t SETTINGS_MENU_ICON_RESOURCES[SettingsMenuItem_Count] = {
   [SettingsMenuItemBluetooth] = RESOURCE_ID_SETTINGS_MENU_ICON_BLUETOOTH,
@@ -51,7 +51,7 @@ typedef struct {
   StatusBarLayer status_layer;
 #endif
   MenuLayer menu_layer;
-#ifdef CONFIG_SETTINGS_ICONS
+#if defined(CONFIG_SETTINGS_ICONS) || defined(CONFIG_PLATFORM_EMERY)
   GBitmap *icons[SettingsMenuItem_Count];
 #endif
   EventServiceInfo pref_change_event_info; //!< Subscription for pref change notifications
@@ -92,12 +92,30 @@ static void prv_draw_row_callback(GContext *ctx, const Layer *cell_layer,
   menu_layer_set_scroll_vibe_on_blocked(&(data->menu_layer),
                                 shell_prefs_get_menu_scroll_vibe_behavior() == MenuScrollVibeOnLocked);
 
-#ifdef CONFIG_SETTINGS_ICONS
+#if defined(CONFIG_SETTINGS_ICONS) || defined(CONFIG_PLATFORM_EMERY)
   GBitmap *icon = data->icons[cell_index->row];
 #else
   GBitmap *icon = NULL;
 #endif
+#ifdef CONFIG_PLATFORM_EMERY
+  const GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
+  menu_cell_basic_draw_custom(ctx, cell_layer, font, title, NULL, NULL, NULL, NULL, icon,
+                              false, GTextOverflowModeTrailingEllipsis);
+
+  graphics_context_set_fill_color(ctx, menu_cell_layer_is_highlighted(cell_layer)
+                                           ? GColorWhite
+                                           : GColorBlack);
+  const int16_t x = cell_layer->bounds.size.w - 19;
+  const int16_t y = cell_layer->bounds.size.h / 2 - 4;
+  for (int16_t i = 0; i < 4; ++i) {
+    const GRect upper = GRect(x + i, y + i, 1, 1);
+    const GRect lower = GRect(x + i, y + 7 - i, 1, 1);
+    graphics_fill_rect(ctx, &upper);
+    graphics_fill_rect(ctx, &lower);
+  }
+#else
   menu_cell_basic_draw(ctx, cell_layer, title, NULL, icon);
+#endif
 }
 
 static void prv_select_callback(MenuLayer *menu_layer, MenuIndex *cell_index, void *context) {
@@ -117,7 +135,11 @@ static int16_t prv_get_cell_height_callback(MenuLayer *menu_layer,
   return menu_layer_is_index_selected(menu_layer, cell_index) ? focused_cell_height :
                                                                 unfocused_cell_height;
 #else
+#ifdef CONFIG_PLATFORM_EMERY
+  return 40;
+#else
   return menu_cell_basic_cell_height();
+#endif
 #endif
 }
 
@@ -130,7 +152,7 @@ static int16_t prv_get_separator_height_callback(MenuLayer *menu_layer,
 static void prv_window_load(Window *window) {
   SettingsAppData *data = window_get_user_data(window);
 
-#ifdef CONFIG_SETTINGS_ICONS
+#if defined(CONFIG_SETTINGS_ICONS) || defined(CONFIG_PLATFORM_EMERY)
   // Load icons
   for (size_t i = 0; i < ARRAY_LENGTH(data->icons); i++) {
     if (SETTINGS_MENU_ICON_RESOURCES[i] != RESOURCE_ID_INVALID) {
@@ -200,7 +222,7 @@ static void prv_window_unload(Window *window) {
   status_bar_layer_deinit(&data->status_layer);
 #endif
 
-#ifdef CONFIG_SETTINGS_ICONS
+#if defined(CONFIG_SETTINGS_ICONS) || defined(CONFIG_PLATFORM_EMERY)
   // Free icons
   for (size_t i = 0; i < ARRAY_LENGTH(data->icons); i++) {
     if (data->icons[i]) {

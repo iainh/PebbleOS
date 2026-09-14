@@ -872,6 +872,12 @@ static void prv_update_now_playing(MusicAppData *data) {
   char artist_buffer[MUSIC_BUFFER_LENGTH];
   char title_buffer[MUSIC_BUFFER_LENGTH];
   music_get_now_playing(title_buffer, artist_buffer, NULL);
+#ifdef CONFIG_PLATFORM_EMERY
+  if (!artist_buffer[0] && !title_buffer[0]) {
+    strncpy(artist_buffer, i18n_get("No music playing", data), MUSIC_BUFFER_LENGTH);
+    strncpy(title_buffer, i18n_get("Start playback on phone", data), MUSIC_BUFFER_LENGTH);
+  }
+#endif
 
   if (music_needs_user_to_start_playback_on_phone()) {
     prv_push_no_music_window(data);
