@@ -14,6 +14,7 @@
 #include "pbl/services/system_task.h"
 #include <pbl/logging/logging.h>
 #include "system/passert.h"
+#include "pbl/util/attributes.h"
 #include "pbl/util/circular_buffer.h"
 #include "pbl/util/heap.h"
 #include "util/time/time.h"
@@ -106,6 +107,21 @@ static void prv_free_buffers(MicDeviceState *state) {
   }
 }
 
+T_STATIC uint16_t prv_write_pdm_samples(CircularBuffer *buffer, const int16_t *samples,
+                                        uint16_t sample_count) {
+  const uint16_t requested_bytes = sample_count * sizeof(*samples);
+  uint16_t write_bytes = circular_buffer_get_write_space_remaining(buffer);
+  if (write_bytes > requested_bytes) {
+    write_bytes = requested_bytes;
+  }
+  write_bytes -= write_bytes % sizeof(*samples);
+
+  if (write_bytes && !circular_buffer_write(buffer, samples, write_bytes)) {
+    return 0;
+  }
+  return write_bytes / sizeof(*samples);
+}
+
 static void prv_process_pdm_buffer(MicDeviceState *state, int16_t *pdm_data) {
   // Ensure we're still running and have valid state
   if (!state->is_running) {
@@ -125,31 +141,22 @@ static void prv_process_pdm_buffer(MicDeviceState *state, int16_t *pdm_data) {
     return;
   }
   
-  // Write samples to circular buffer
-  uint32_t samples_written = 0;
-  for (int i = 0; i < PDM_BUFFER_SIZE_SAMPLES; i++) {
-    if (!circular_buffer_write(&state->circ_buffer,
-                              (const uint8_t *)&pdm_data[i],
-                              sizeof(int16_t))) {
-      break;  // Buffer is full, drop remaining samples
-    }
-    samples_written++;
-  }
+  const uint16_t samples_written =
+      prv_write_pdm_samples(&state->circ_buffer, pdm_data, PDM_BUFFER_SIZE_SAMPLES);
 
   // Monitor for buffer overruns (dropped samples)
   static uint32_t total_samples = 0, dropped_samples = 0;
   total_samples += PDM_BUFFER_SIZE_SAMPLES;
   dropped_samples += (PDM_BUFFER_SIZE_SAMPLES - samples_written);
 
-  // Monitor buffer utilization
-  uint16_t buffer_free = circular_buffer_get_write_space_remaining(&state->circ_buffer);
-  uint16_t buffer_total = state->circ_buffer_size;
-  uint16_t buffer_used = buffer_total - buffer_free;
-  uint16_t buffer_utilization = buffer_total ? (buffer_used * 100) / buffer_total : 0;
-
   // Log dropout statistics periodically
   static uint32_t log_counter = 0;
   if (++log_counter >= 100) { // Every 100 buffers (~2 seconds)
+    const uint16_t buffer_total = state->circ_buffer_size;
+    const uint16_t buffer_used =
+        buffer_total - circular_buffer_get_write_space_remaining(&state->circ_buffer);
+    const uint16_t buffer_utilization = buffer_total ? (buffer_used * 100) / buffer_total : 0;
+
     if (dropped_samples > 0) {
       // Calculate percentage using integer arithmetic (x10 for one decimal place)
       uint32_t percent_x10 = (dropped_samples * 1000) / total_samples;
