@@ -47,6 +47,9 @@ static const uint32_t SETTINGS_MENU_ICON_RESOURCES[SettingsMenuItem_Count] = {
 
 typedef struct {
   Window window;
+#ifdef CONFIG_PLATFORM_EMERY
+  StatusBarLayer status_layer;
+#endif
   MenuLayer menu_layer;
 #ifdef CONFIG_SETTINGS_ICONS
   GBitmap *icons[SettingsMenuItem_Count];
@@ -140,6 +143,15 @@ static void prv_window_load(Window *window) {
 
   // Create the menu
   GRect bounds = data->window.layer.bounds;
+#ifdef CONFIG_PLATFORM_EMERY
+  StatusBarLayer *status_layer = &data->status_layer;
+  status_bar_layer_init(status_layer);
+  status_bar_layer_set_title(status_layer, i18n_get("Settings", data), false, false);
+  status_bar_layer_set_colors(status_layer, GColorLightGray, GColorBlack);
+  layer_add_child(&data->window.layer, status_bar_layer_get_layer(status_layer));
+  bounds.origin.y += STATUS_BAR_LAYER_HEIGHT;
+  bounds.size.h -= STATUS_BAR_LAYER_HEIGHT;
+#endif
 #if PBL_ROUND
   bounds = grect_inset_internal(bounds, 0,
                                 SETTINGS_CATEGORY_MENU_CELL_UNFOCUSED_ROUND_VERTICAL_PADDING);
@@ -154,9 +166,13 @@ static void prv_window_load(Window *window) {
     .get_separator_height = prv_get_separator_height_callback
   });
   GColor highlight_bg = shell_prefs_get_theme_highlight_color();
+#ifdef CONFIG_PLATFORM_EMERY
+  menu_layer_set_normal_colors(menu_layer, GColorWhite, GColorBlack);
+#else
   menu_layer_set_normal_colors(menu_layer,
                                PBL_IF_COLOR_ELSE(GColorBlack, GColorWhite),
                                PBL_IF_COLOR_ELSE(GColorWhite, GColorBlack));
+#endif
   menu_layer_set_highlight_colors(menu_layer,
                                   highlight_bg,
                                   gcolor_legible_over(highlight_bg));
@@ -179,6 +195,10 @@ static void prv_window_unload(Window *window) {
   SettingsAppData *data = window_get_user_data(window);
 
   event_service_client_unsubscribe(&data->pref_change_event_info);
+
+#ifdef CONFIG_PLATFORM_EMERY
+  status_bar_layer_deinit(&data->status_layer);
+#endif
 
 #ifdef CONFIG_SETTINGS_ICONS
   // Free icons
@@ -203,7 +223,11 @@ static void handle_init(void) {
     .load = prv_window_load,
     .unload = prv_window_unload,
   });
+#ifdef CONFIG_PLATFORM_EMERY
+  window_set_background_color(window, GColorWhite);
+#else
   window_set_background_color(window, PBL_IF_COLOR_ELSE(GColorBlack, GColorWhite));
+#endif
   app_window_stack_push(window, true);
 }
 

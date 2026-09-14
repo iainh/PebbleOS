@@ -171,7 +171,11 @@ static void prv_settings_window_load(Window *window) {
       ? data->title_override
       : settings_menu_get_status_name(data->current_category);
   status_bar_layer_set_title(status_layer, i18n_get(title, data), false, false);
+#ifdef CONFIG_PLATFORM_EMERY
+  status_bar_layer_set_colors(status_layer, GColorLightGray, GColorBlack);
+#else
   status_bar_layer_set_colors(status_layer, GColorWhite, GColorBlack);
+#endif
   status_bar_layer_set_separator_mode(status_layer, OPTION_MENU_STATUS_SEPARATOR_MODE);
   layer_add_child(&data->window.layer, status_bar_layer_get_layer(status_layer));
 

@@ -20,7 +20,11 @@
 #define SMART_ALARM_MAX_LIGHT_SLEEP_S (30 * SECONDS_PER_MINUTE)
 #define SMART_ALARM_MAX_SMART_SNOOZE (SMART_ALARM_RANGE_S / SMART_ALARM_SNOOZE_DELAY_S)
 
+#ifdef CONFIG_PLATFORM_EMERY
+#define ALARMS_APP_HIGHLIGHT_COLOR GColorBlueMoon
+#else
 #define ALARMS_APP_HIGHLIGHT_COLOR PBL_IF_COLOR_ELSE(GColorJaegerGreen, GColorBlack)
+#endif
 
 typedef int AlarmId; //! A unique ID that can be used to refer to each configured alarm.
 

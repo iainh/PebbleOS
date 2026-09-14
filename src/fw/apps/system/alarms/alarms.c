@@ -404,8 +404,14 @@ static void prv_handle_init(void) {
   layer_add_child(&data->window.layer, menu_layer_get_layer(&data->menu_layer));
 
   status_bar_layer_init(&data->status_layer);
+#ifdef CONFIG_PLATFORM_EMERY
+  status_bar_layer_set_title(&data->status_layer, "Alarms", false, false);
+  status_bar_layer_set_mode(&data->status_layer, StatusBarLayerModeLoading);
+  status_bar_layer_set_colors(&data->status_layer, GColorLightGray, GColorBlack);
+#else
   status_bar_layer_set_colors(&data->status_layer, PBL_IF_COLOR_ELSE(GColorWhite, GColorBlack),
                               PBL_IF_COLOR_ELSE(GColorBlack, GColorWhite));
+#endif
   status_bar_layer_set_separator_mode(&data->status_layer, StatusBarLayerSeparatorModeNone);
   layer_add_child(&data->window.layer, status_bar_layer_get_layer(&data->status_layer));
 

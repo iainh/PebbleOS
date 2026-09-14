@@ -1406,16 +1406,29 @@ static void prv_apply_art_appearance(MusicAppData *data) {
   } else {
     clock_mode = StatusBarLayerModeClockLargeBold;
   }
-  status_bar_layer_set_colors(&data->status_layer, GColorClear,
-                              data->has_album_art ? GColorWhite : GColorBlack);
-  status_bar_layer_set_mode(&data->status_layer, clock_mode);
+#ifdef CONFIG_PLATFORM_EMERY
+  if (!prv_use_media_layout(data)) {
+    status_bar_layer_set_title(&data->status_layer, "Music", false, false);
+    status_bar_layer_set_colors(&data->status_layer, GColorLightGray, GColorBlack);
+    status_bar_layer_set_mode(&data->status_layer, StatusBarLayerModeLoading);
+  } else
+#endif
+  {
+    status_bar_layer_set_colors(&data->status_layer, GColorClear,
+                                data->has_album_art ? GColorWhite : GColorBlack);
+    status_bar_layer_set_mode(&data->status_layer, clock_mode);
+  }
   layer_mark_dirty(&data->window.layer);
 }
 
 static void prv_init_ui(Window *window) {
   MusicAppData *data = window_get_user_data(window);
 
+#ifdef CONFIG_PLATFORM_EMERY
+  window_set_background_color(window, GColorWhite);
+#else
   window_set_background_color(window, PBL_IF_COLOR_ELSE(GColorLightGray, GColorWhite));
+#endif
 
   const GSize WINDOW_SIZE = window->layer.bounds.size;
 
@@ -1517,7 +1530,13 @@ static void prv_init_ui(Window *window) {
                                                           WINDOW_SIZE.w);
   status_layer_frame.size.w = STATUS_BAR_LAYER_WIDTH;
   layer_set_frame(&status_layer->layer, &status_layer_frame);
+#ifdef CONFIG_PLATFORM_EMERY
+  status_bar_layer_set_title(&data->status_layer, "Music", false, false);
+  status_bar_layer_set_colors(&data->status_layer, GColorLightGray, GColorBlack);
+  status_bar_layer_set_mode(&data->status_layer, StatusBarLayerModeLoading);
+#else
   status_bar_layer_set_colors(&data->status_layer, GColorClear, GColorBlack);
+#endif
   layer_add_child(&data->window.layer, &status_layer->layer);
 
   music_get_pos(&data->track_pos, &data->track_length);
@@ -1676,4 +1695,3 @@ const PebbleProcessMd* music_app_get_info(void) {
   };
   return (const PebbleProcessMd*) &s_app_info;
 }
-

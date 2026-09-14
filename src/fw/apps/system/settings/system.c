@@ -168,7 +168,11 @@ static void prv_init_status_bar(StatusBarLayer *status_layer, Window *window, co
   status_bar_layer_init(status_layer);
   status_bar_layer_set_title(status_layer, text, false, false);
   status_bar_layer_set_separator_mode(status_layer, OPTION_MENU_STATUS_SEPARATOR_MODE);
+#ifdef CONFIG_PLATFORM_EMERY
+  status_bar_layer_set_colors(status_layer, GColorLightGray, GColorBlack);
+#else
   status_bar_layer_set_colors(status_layer, GColorWhite, GColorBlack);
+#endif
   layer_add_child(&window->layer, status_bar_layer_get_layer(status_layer));
 }
 

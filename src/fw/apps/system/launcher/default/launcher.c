@@ -8,6 +8,7 @@
 #include "applib/app.h"
 #include "applib/app_focus_service.h"
 #include "applib/ui/app_window_stack.h"
+#include "applib/ui/status_bar_layer.h"
 #include "kernel/pbl_malloc.h"
 #include "shell/normal/app_idle_timeout.h"
 #include "shell/prefs.h"
@@ -16,6 +17,9 @@
 
 typedef struct LauncherAppWindowData {
   Window window;
+#ifdef CONFIG_PLATFORM_EMERY
+  StatusBarLayer status_layer;
+#endif
   LauncherMenuLayer launcher_menu_layer;
   AppMenuDataSource app_menu_data_source;
 } LauncherAppWindowData;
@@ -80,6 +84,13 @@ static void prv_window_load(Window *window) {
 
   Layer *window_root_layer = window_get_root_layer(window);
 
+#ifdef CONFIG_PLATFORM_EMERY
+  status_bar_layer_init(&data->status_layer);
+  status_bar_layer_set_title(&data->status_layer, "Applications", false, false);
+  status_bar_layer_set_colors(&data->status_layer, GColorLightGray, GColorBlack);
+  layer_add_child(window_root_layer, status_bar_layer_get_layer(&data->status_layer));
+#endif
+
   AppMenuDataSource *data_source = &data->app_menu_data_source;
   app_menu_data_source_init(data_source, &(AppMenuDataSourceCallbacks) {
     .changed = prv_data_changed,
@@ -123,6 +134,9 @@ static void prv_window_unload(Window *window) {
                                           &s_launcher_app_persisted_data.selection_state);
 
   app_focus_service_unsubscribe();
+#ifdef CONFIG_PLATFORM_EMERY
+  status_bar_layer_deinit(&data->status_layer);
+#endif
   launcher_menu_layer_deinit(&data->launcher_menu_layer);
   app_menu_data_source_deinit(&data->app_menu_data_source);
 }

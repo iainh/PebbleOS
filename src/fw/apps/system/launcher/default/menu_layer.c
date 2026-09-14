@@ -9,6 +9,7 @@
 #include "applib/graphics/gtypes.h"
 #include "applib/ui/app_window_stack.h"
 #include "applib/ui/content_indicator.h"
+#include "applib/ui/status_bar_layer.h"
 #include "resource/resource_ids.auto.h"
 #include "system/passert.h"
 #include "shell/prefs.h"
@@ -186,6 +187,10 @@ void launcher_menu_layer_init(LauncherMenuLayer *launcher_menu_layer,
   launcher_menu_layer->data_source = data_source;
 
   GRect menu_layer_frame = frame;
+#ifdef CONFIG_PLATFORM_EMERY
+  menu_layer_frame.origin.y += STATUS_BAR_LAYER_HEIGHT;
+  menu_layer_frame.size.h -= STATUS_BAR_LAYER_HEIGHT;
+#endif
 #if PBL_ROUND
   const int top_bottom_inset =
       (frame.size.h - LAUNCHER_MENU_LAYER_CELL_ROUND_FOCUSED_CELL_HEIGHT -
