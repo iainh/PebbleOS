@@ -5,6 +5,9 @@
 
 #include "board/board.h"
 #include <pbl/drivers/display/display.h>
+#ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
+#include <pbl/drivers/gpu/epic.h>
+#endif
 #include <pbl/drivers/gpio.h>
 #include "kernel/events.h"
 #include "kernel/util/delay.h"
@@ -13,6 +16,7 @@
 #include "pbl/mcu/cache.h"
 #include "pbl/services/new_timer/new_timer.h"
 #include <pbl/logging/logging.h>
+#include <pbl/util/math.h>
 #include "system/passert.h"
 
 #include "pbl/kernel/sem.h"
@@ -40,7 +44,11 @@ PBL_LOG_MODULE_DEFINE(driver_display_jdi, CONFIG_DRIVER_DISPLAY_LOG_LEVEL);
 // (lcd_if.h struct ends around offset 0x100).
 #define DISPLAY_LCDC_REG_DUMP_BYTES 2048
 
-// Pointer to the compositor's framebuffer - we convert in-place to save 44KB RAM
+#ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
+#define EPIC_STRIP_ROWS 20
+#endif
+
+// Pointer to the compositor's framebuffer.
 static uint8_t *s_framebuffer;
 static uint16_t s_update_y0;
 static uint16_t s_update_y1;
@@ -61,6 +69,13 @@ static volatile bool s_eof_observed;
 // volatile because the only consumer is the postmortem coredump tool, not
 // any C code in this image — without it, the compiler eliminates the stores.
 static volatile uint32_t s_lcdc_pre_crash_regs[DISPLAY_LCDC_REG_DUMP_BYTES / sizeof(uint32_t)];
+
+#ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
+static uint16_t s_strip_y;
+static uint16_t s_strip_rows;
+static uint16_t s_epic_strip[PBL_DISPLAY_WIDTH * EPIC_STRIP_ROWS] __attribute__((aligned(32)));
+static uint32_t s_epic_palette[256] __attribute__((aligned(32)));
+#endif
 
 // Ring buffer of recent LCDC interrupts, recorded by display_jdi_irq_handler
 #define DISPLAY_IRQ_LOG_ENTRIES 32
@@ -163,23 +178,65 @@ static void prv_display_off() {
   gpio_output_set(&DISPLAY->vlcd, false);
 }
 
-static HAL_StatusTypeDef prv_display_update_start(void) {
+static HAL_StatusTypeDef prv_lcdc_update_start(uint8_t *data, uint16_t y0, uint16_t y1,
+                                               HAL_LCDC_PixelFormat format) {
   DisplayJDIState *state = DISPLAY->state;
 
-  // The LCDC reads the framebuffer over DMA, which bypasses the D-cache.
-  // Flush dirty lines for the rows we're about to send so the LCDC sees
-  // the 332-converted pixels instead of stale SRAM.
-  uintptr_t fb_addr = (uintptr_t)&s_framebuffer[s_update_y0 * PBL_DISPLAY_WIDTH];
-  size_t fb_size = (size_t)(s_update_y1 - s_update_y0 + 1) * PBL_DISPLAY_WIDTH;
+  size_t bytes_per_pixel = format == LCDC_PIXEL_FORMAT_RGB565 ? 2 : 1;
+  uintptr_t fb_addr = (uintptr_t)data;
+  size_t fb_size = (size_t)(y1 - y0 + 1) * PBL_DISPLAY_WIDTH * bytes_per_pixel;
   dcache_align(&fb_addr, &fb_size);
   dcache_flush((const void *)fb_addr, fb_size);
 
-  // Only send the dirty region that was converted to RGB332 format
-  HAL_LCDC_SetROIArea(&state->hlcdc, 0, s_update_y0, PBL_DISPLAY_WIDTH - 1, s_update_y1);
-  HAL_LCDC_LayerSetData(&state->hlcdc, HAL_LCDC_LAYER_DEFAULT, s_framebuffer, 0, s_update_y0,
-                        PBL_DISPLAY_WIDTH - 1, s_update_y1);
+  HAL_LCDC_LayerSetFormat(&state->hlcdc, HAL_LCDC_LAYER_DEFAULT, format);
+  HAL_LCDC_SetROIArea(&state->hlcdc, 0, y0, PBL_DISPLAY_WIDTH - 1, y1);
+  HAL_LCDC_LayerSetData(&state->hlcdc, HAL_LCDC_LAYER_DEFAULT, data, 0, y0,
+                        PBL_DISPLAY_WIDTH - 1, y1);
   return HAL_LCDC_SendLayerData_IT(&state->hlcdc);
 }
+
+#ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
+static HAL_StatusTypeDef prv_display_update_start(void) {
+  const uint16_t rows_remaining = s_update_y1 - s_strip_y + 1;
+  s_strip_rows = MIN(rows_remaining, EPIC_STRIP_ROWS);
+  uint16_t source_y = s_strip_y;
+  if (s_rotated_180) {
+    source_y = PBL_DISPLAY_HEIGHT - s_strip_y - s_strip_rows;
+  }
+
+  EpicLayer source = {
+    .data = &s_framebuffer[source_y * PBL_DISPLAY_WIDTH],
+    .format = EpicPixelFormat_L8,
+    .alpha_mode = EpicAlphaMode_Normal,
+    .width = PBL_DISPLAY_WIDTH,
+    .height = s_strip_rows,
+    .stride_pixels = PBL_DISPLAY_WIDTH,
+    .alpha = 255,
+    .palette = s_epic_palette,
+    .palette_entries = 256,
+    .h_mirror = s_rotated_180,
+    .v_mirror = s_rotated_180,
+  };
+  EpicBuffer destination = {
+    .data = (uint8_t *)s_epic_strip,
+    .format = EpicPixelFormat_RGB565,
+    .width = PBL_DISPLAY_WIDTH,
+    .height = s_strip_rows,
+    .stride_pixels = PBL_DISPLAY_WIDTH,
+  };
+  if (!epic_blend(&source, 1, &destination)) {
+    return HAL_ERROR;
+  }
+
+  return prv_lcdc_update_start((uint8_t *)s_epic_strip, s_strip_y,
+                               s_strip_y + s_strip_rows - 1, LCDC_PIXEL_FORMAT_RGB565);
+}
+#else
+static HAL_StatusTypeDef prv_display_update_start(void) {
+  return prv_lcdc_update_start(s_framebuffer, s_update_y0, s_update_y1,
+                               LCDC_PIXEL_FORMAT_RGB332);
+}
+#endif
 
 static void prv_handle_send_failure(const char *ctx, HAL_StatusTypeDef status) {
   DisplayJDIState *state = DISPLAY->state;
@@ -232,9 +289,29 @@ static void prv_silent_loss_handler(void *data) {
             (unsigned)s_update_y0, (unsigned)s_update_y1);
 }
 
+static void prv_display_update_finish(void) {
+  s_updating = false;
+  s_uccb();
+  soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
+}
+
 static void prv_display_update_terminate(void *data) {
   new_timer_stop(s_silent_loss_timer);
 
+#ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
+  if (s_strip_y + s_strip_rows <= s_update_y1) {
+    s_strip_y += s_strip_rows;
+    s_eof_observed = false;
+    new_timer_start(s_silent_loss_timer, DISPLAY_SILENT_LOSS_TIMEOUT_MS,
+                    prv_silent_loss_handler, NULL, 0);
+    HAL_StatusTypeDef status = prv_display_update_start();
+    if (status == HAL_OK) {
+      return;
+    }
+    prv_handle_send_failure("strip", status);
+    new_timer_stop(s_silent_loss_timer);
+  }
+#else
   // Convert the updated region back from 332 to 222 format
   for (uint16_t y = s_update_y0; y <= s_update_y1; y++) {
     uint8_t *row = &s_framebuffer[y * PBL_DISPLAY_WIDTH];
@@ -259,10 +336,9 @@ static void prv_display_update_terminate(void *data) {
                  (p & 0x03030303);          // B: bits 0-1 stay
     }
   }
+#endif
 
-  s_updating = false;
-  s_uccb();
-  soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
+  prv_display_update_finish();
 }
 
 void display_jdi_irq_handler(DisplayJDIDevice *disp) {
@@ -355,7 +431,12 @@ void display_init(void) {
   HAL_LCDC_LayerReset(&state->hlcdc, HAL_LCDC_LAYER_DEFAULT);
   HAL_LCDC_LayerSetCmpr(&state->hlcdc, HAL_LCDC_LAYER_DEFAULT, 0);
   HAL_LCDC_LayerSetFormat(&state->hlcdc, HAL_LCDC_LAYER_DEFAULT, LCDC_PIXEL_FORMAT_RGB332);
+#ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
+  HAL_LCDC_LayerVMirror(&state->hlcdc, HAL_LCDC_LAYER_DEFAULT, false);
+  epic_build_gcolor8_palette(s_epic_palette);
+#else
   HAL_LCDC_LayerVMirror(&state->hlcdc, HAL_LCDC_LAYER_DEFAULT, s_rotated_180);
+#endif
 
   HAL_NVIC_SetPriority(DISPLAY->irqn, DISPLAY->irq_priority, 0);
   HAL_NVIC_EnableIRQ(DISPLAY->irqn);
@@ -378,14 +459,18 @@ bool display_update_in_progress(void) {
 }
 
 void display_set_rotated(bool rotated) {
+#ifndef CONFIG_DISPLAY_JDI_SF32LB_EPIC
   DisplayJDIState *state = DISPLAY->state;
+#endif
 
 #if DISPLAY_ORIENTATION_ROTATED_180
   s_rotated_180 = !rotated;
 #else
   s_rotated_180 = rotated;
 #endif
+#ifndef CONFIG_DISPLAY_JDI_SF32LB_EPIC
   HAL_LCDC_LayerVMirror(&state->hlcdc, HAL_LCDC_LAYER_DEFAULT, s_rotated_180);
+#endif
 
 }
 
@@ -395,8 +480,6 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
 
   PBL_ASSERTN(!s_updating);
 
-  // Convert rows in-place from 222 to 332 format
-  // We use the compositor's framebuffer directly to save RAM
   while (nrcb(&row)) {
     if (first_row) {
       // Capture pointer to compositor's framebuffer from first row
@@ -406,6 +489,7 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
     }
     s_update_y1 = row.address;
 
+#ifndef CONFIG_DISPLAY_JDI_SF32LB_EPIC
     // Convert this row in-place from 222 to 332 using word-level bit manipulation
     // 222 format: XX RR GG BB (bits 7-6 unused, 5-4 R, 3-2 G, 1-0 B)
     // 332 format: RR 0G GG BB (bits 7-6 R, 4-3 G, 1-0 B)
@@ -426,6 +510,7 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
         row_data[PBL_DISPLAY_WIDTH - 1 - x] = tmp;
       }
     }
+#endif
   }
 
   if (first_row) {
@@ -448,6 +533,9 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
   s_uccb = uccb;
   s_updating = true;
   s_eof_observed = false;
+#ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
+  s_strip_y = s_update_y0;
+#endif
 
   soc_sf32lb_sleep_block(SOC_SF32LB_DEEPWFI);
   // Arm the timer before kickoff so the EOF IRQ, which can fire as soon as
@@ -460,7 +548,8 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
   HAL_StatusTypeDef status = prv_display_update_start();
   if (status != HAL_OK) {
     prv_handle_send_failure("update", status);
-    prv_display_update_terminate(NULL);
+    new_timer_stop(s_silent_loss_timer);
+    prv_display_update_finish();
   }
 }
 
@@ -482,7 +571,10 @@ void display_update_boot_frame(uint8_t *framebuffer) {
   s_update_y1 = PBL_DISPLAY_HEIGHT - 1;
 
   soc_sf32lb_sleep_block(SOC_SF32LB_DEEPWFI);
-  HAL_StatusTypeDef status = prv_display_update_start();
+  DisplayJDIState *state = DISPLAY->state;
+  HAL_LCDC_LayerVMirror(&state->hlcdc, HAL_LCDC_LAYER_DEFAULT, s_rotated_180);
+  HAL_StatusTypeDef status = prv_lcdc_update_start(framebuffer, 0, PBL_DISPLAY_HEIGHT - 1,
+                                                   LCDC_PIXEL_FORMAT_RGB332);
   if (status == HAL_OK) {
     pbl_sem_take(&s_sem, PBL_FOREVER);
   } else {
@@ -491,6 +583,9 @@ void display_update_boot_frame(uint8_t *framebuffer) {
     prv_handle_send_failure("boot", status);
   }
   soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
+#ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
+  HAL_LCDC_LayerVMirror(&state->hlcdc, HAL_LCDC_LAYER_DEFAULT, false);
+#endif
 }
 
 void display_clear(void) {}

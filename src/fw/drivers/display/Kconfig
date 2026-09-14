@@ -16,6 +16,14 @@ config DISPLAY_JDI_SF32LB
     help
       Support for JDI display via SiFli SF32LB.
 
+config DISPLAY_JDI_SF32LB_EPIC
+    bool "Use EPIC for JDI framebuffer conversion"
+    depends on DISPLAY_JDI_SF32LB && GPU_EPIC
+    help
+      Convert the Pebble ARGB2222 framebuffer to RGB565 with EPIC in
+      small strips before sending it through LCDC. This avoids changing
+      the app-facing framebuffer format or allocating a full RGB565 frame.
+
 config DISPLAY_SHARP_LS013B7DH01_NRF5
     bool "Sharp LS013B7DH01 (nRF5)"
     default y if SOC_NRF52

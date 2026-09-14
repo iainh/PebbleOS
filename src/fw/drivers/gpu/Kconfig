@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 Core Devices LLC
+# SPDX-License-Identifier: Apache-2.0
+
+config GPU_EPIC
+    bool "SiFli EPIC graphics accelerator"
+    depends on SOC_SF32LB52
+    select HAL_SIFLI
+    select HAL_SIFLI_EPIC
+    help
+      Enable the SiFli ePicasso 2.0 graphics accelerator driver.
+
+if GPU_EPIC
+
+module = DRIVER_GPU_EPIC
+module-str = EPIC GPU
+source "subsys/logging/Kconfig.template.log_level"
+
+endif

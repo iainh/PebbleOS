@@ -292,6 +292,10 @@ extern void command_console_disable_rx(const char *seconds_str);
 extern void command_force_wfi(const char *arg);
 #endif
 
+#ifdef CONFIG_GPU_EPIC
+extern void command_epic_benchmark(void);
+#endif
+
 #if !defined(CONFIG_RELEASE) && defined(CONFIG_DISPLAY_JDI_SF32LB)
 extern void command_display_drop_complete(void);
 #endif
@@ -412,6 +416,9 @@ static const Command s_prompt_commands[] = {
   { "flash fill", command_flash_fill, 3},
   { "flash validate", command_flash_validate, 0},
   { "flash erased_sectors", command_flash_show_erased_sectors, 1},
+#ifdef CONFIG_GPU_EPIC
+  { "epic benchmark", command_epic_benchmark, 0 },
+#endif
 #ifdef CONFIG_OTP_FLASH
   { "flash sec read", command_flash_sec_read, 1},
   { "flash sec write", command_flash_sec_write, 2},

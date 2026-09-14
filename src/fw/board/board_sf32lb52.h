@@ -140,6 +140,9 @@ typedef struct {
 } BoardConfigMag;
 
 #include <pbl/drivers/flash/qspi_flash_definitions.h>
+#ifdef CONFIG_GPU_EPIC
+#include <pbl/drivers/gpu/epic.h>
+#endif
 #include <pbl/drivers/qspi_definitions.h>
 #include <pbl/drivers/uart/sf32lb.h>
 #include <pbl/drivers/display/sf32lb/display_jdi.h>

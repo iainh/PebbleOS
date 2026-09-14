@@ -613,6 +613,23 @@ void command_flash_benchmark() {
   s_flash_benchmark(1024);
 }
 
+#ifdef CONFIG_GPU_EPIC
+#include <pbl/drivers/gpu/epic.h>
+
+void command_epic_benchmark(void) {
+  EpicBenchmarkResult result;
+  bool success = epic_run_benchmark(&result);
+  char buffer[160];
+  prompt_send_response_fmt(
+      buffer, sizeof(buffer),
+      "EPIC %s: fill=%" PRIu32 " copy=%" PRIu32 " blend=%" PRIu32
+      " rotate=%" PRIu32 " l8=%" PRIu32 " cycles; output=%s",
+      success ? "PASS" : "FAIL", result.fill_cycles, result.copy_cycles,
+      result.blend_cycles, result.rotate_cycles, result.l8_cycles,
+      result.output_valid ? "valid" : "invalid");
+}
+#endif
+
 void command_reset() {
   prompt_command_finish();
 
