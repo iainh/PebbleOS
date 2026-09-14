@@ -204,7 +204,7 @@ void action_bar_update_proc(ActionBarLayer *action_bar, GContext* ctx) {
         const int16_t section_height = action_bar->layer.bounds.size.h / NUM_ACTION_BAR_ITEMS;
         GRect section = GRect(1, index * section_height + 1,
                               action_bar->layer.bounds.size.w - 2, section_height - 1);
-        graphics_context_set_fill_color(ctx, GColorBlueMoon);
+        graphics_context_set_fill_color(ctx, GColorLiberty);
         graphics_fill_rect(ctx, &section);
       }
 #endif

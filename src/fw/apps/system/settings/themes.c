@@ -15,7 +15,7 @@
 
 #ifdef CONFIG_THEMING
 
-#define DEFAULT_THEME_HIGHLIGHT_COLOR GColorBlueMoon
+#define DEFAULT_THEME_HIGHLIGHT_COLOR GColorLiberty
 
 typedef struct ColorDefinition {
   const char *name;

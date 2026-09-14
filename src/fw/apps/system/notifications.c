@@ -716,7 +716,7 @@ static void prv_window_load(Window *window) {
 
   menu_layer_set_normal_colors(menu_layer, GColorWhite, GColorBlack);
 #ifdef CONFIG_PLATFORM_EMERY
-  menu_layer_set_highlight_colors(menu_layer, GColorBlueMoon, GColorWhite);
+  menu_layer_set_highlight_colors(menu_layer, GColorLiberty, GColorWhite);
 #else
   menu_layer_set_highlight_colors(menu_layer,
                                   PBL_IF_COLOR_ELSE(DEFAULT_NOTIFICATION_COLOR, GColorBlack),

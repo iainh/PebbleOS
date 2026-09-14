@@ -1028,7 +1028,7 @@ void menu_layer_init(MenuLayer *menu_layer, const GRect *frame) {
 
   menu_layer_set_normal_colors(menu_layer, GColorWhite, GColorBlack);
 #ifdef CONFIG_PLATFORM_EMERY
-  menu_layer_set_highlight_colors(menu_layer, GColorBlueMoon, GColorWhite);
+  menu_layer_set_highlight_colors(menu_layer, GColorLiberty, GColorWhite);
 #else
   menu_layer_set_highlight_colors(menu_layer, GColorBlack, GColorWhite);
 #endif
