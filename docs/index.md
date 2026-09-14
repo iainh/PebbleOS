@@ -93,6 +93,7 @@ development/testing.md
 development/qemu.md
 development/debugging.md
 development/moddable.md
+development/epic.md
 development/sdk_export.md
 development/contributing.md
 ```
