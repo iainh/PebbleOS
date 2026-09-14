@@ -2083,10 +2083,10 @@ void test_menu_layer__scrollbar_thumb_rect_geometry(void) {
   cl_assert(content_h > frame_h);
   const int16_t scrollable_h = content_h - frame_h;
 #ifdef CONFIG_PLATFORM_EMERY
-  const int16_t track_h = frame_h - 22;  // 11px arrow button at each end
-  const int16_t thumb_w = 11;
+  const int16_t track_h = frame_h - 30;  // 15px arrow button at each end
+  const int16_t thumb_w = 15;
   const int16_t thumb_x = frame_w - thumb_w;
-  const int16_t track_top = 11;
+  const int16_t track_top = 15;
 #else
   const int16_t track_h = frame_h - 2;  // 1px margin at each end
   const int16_t thumb_w = 3;
