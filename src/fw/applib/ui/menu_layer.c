@@ -885,15 +885,15 @@ static void NOINLINE prv_draw_background(MenuLayer *menu_layer, GContext *ctx,
   if (draw_background_cb) {
     draw_background_cb(ctx, bg_layer, false, menu_layer->callback_context);
   } else if (highlight) {
+#ifdef CONFIG_PLATFORM_EMERY
+    ctx->draw_state.fill_color = menu_layer->normal_colors[MenuLayerColorBackground];
+    graphics_fill_rect(ctx, bounds);
+    const GRect selection = grect_inset(*bounds, GEdgeInsets(2, 15, 2, 4));
+    ctx->draw_state.fill_color = menu_layer->highlight_colors[MenuLayerColorBackground];
+    graphics_fill_round_rect(ctx, &selection, 2, GCornersAll);
+#else
     ctx->draw_state.fill_color = menu_layer->highlight_colors[MenuLayerColorBackground];
     graphics_fill_rect(ctx, bounds);
-#ifdef CONFIG_PLATFORM_EMERY
-    GRect edge = GRect(bounds->origin.x, bounds->origin.y, bounds->size.w, 1);
-    graphics_context_set_fill_color(ctx, GColorWhite);
-    graphics_fill_rect(ctx, &edge);
-    edge.origin.y = bounds->origin.y + bounds->size.h - 1;
-    graphics_context_set_fill_color(ctx, GColorBlack);
-    graphics_fill_rect(ctx, &edge);
 #endif
   } else {
     ctx->draw_state.fill_color = menu_layer->normal_colors[MenuLayerColorBackground];

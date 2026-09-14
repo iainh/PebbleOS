@@ -2082,23 +2082,33 @@ void test_menu_layer__scrollbar_thumb_rect_geometry(void) {
   const int16_t content_h = scroll_layer_get_content_size(&l.scroll_layer).h;
   cl_assert(content_h > frame_h);
   const int16_t scrollable_h = content_h - frame_h;
+#ifdef CONFIG_PLATFORM_EMERY
+  const int16_t track_h = frame_h - 22;  // 11px arrow button at each end
+  const int16_t thumb_w = 11;
+  const int16_t thumb_x = frame_w - thumb_w;
+  const int16_t track_top = 11;
+#else
   const int16_t track_h = frame_h - 2;  // 1px margin at each end
+  const int16_t thumb_w = 3;
+  const int16_t thumb_x = frame_w - 4;  // 1px margin + 3px thumb
+  const int16_t track_top = 1;
+#endif
   const int16_t thumb_h = (int16_t)(((int32_t)track_h * frame_h) / content_h);
 
   // Top of the list: thumb rests at the top track margin
   GRect r = prv_scrollbar_thumb_rect(&l, 0);
-  cl_assert_equal_i(r.origin.x, frame_w - 4);  // 1px margin + 3px thumb
-  cl_assert_equal_i(r.size.w, 3);
-  cl_assert_equal_i(r.origin.y, 1);
+  cl_assert_equal_i(r.origin.x, thumb_x);
+  cl_assert_equal_i(r.size.w, thumb_w);
+  cl_assert_equal_i(r.origin.y, track_top);
   cl_assert_equal_i(r.size.h, thumb_h);
 
   // Bottom of the list: thumb ends at the bottom track margin (content-space coordinates)
   r = prv_scrollbar_thumb_rect(&l, scrollable_h);
-  cl_assert_equal_i(r.origin.y + r.size.h, scrollable_h + frame_h - 1);
+  cl_assert_equal_i(r.origin.y + r.size.h, scrollable_h + frame_h - track_top);
 
   // Center-focused over-scroll past the top clamps the thumb to the track
   r = prv_scrollbar_thumb_rect(&l, -40);
-  cl_assert_equal_i(r.origin.y, -40 + 1);
+  cl_assert_equal_i(r.origin.y, -40 + track_top);
   menu_layer_deinit(&l);
 }
 

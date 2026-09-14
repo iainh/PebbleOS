@@ -58,12 +58,16 @@ static uint16_t prv_get_num_rows_callback(MenuLayer *menu_layer, uint16_t sectio
 }
 
 uint16_t option_menu_default_cell_height(OptionMenuContentType content_type, bool selected) {
+#ifdef CONFIG_PLATFORM_EMERY
+  return 40;
+#else
   const OptionMenuStyle * const PBL_UNUSED style = prv_get_style();
   const int16_t cell_height =
       PBL_IF_ROUND_ELSE(selected ? MENU_CELL_ROUND_FOCUSED_SHORT_CELL_HEIGHT :
                                    MENU_CELL_ROUND_UNFOCUSED_TALL_CELL_HEIGHT,
                         style->cell_heights[content_type]);
   return cell_height ?: menu_cell_basic_cell_height();
+#endif
 }
 
 static int16_t prv_get_cell_height_callback(MenuLayer *menu_layer, MenuIndex *cell_index,
@@ -248,7 +252,11 @@ void option_menu_configure(OptionMenu *option_menu,
 void option_menu_init(OptionMenu *option_menu) {
   *option_menu = (OptionMenu) {
     .choice = OPTION_MENU_CHOICE_NONE,
+#ifdef CONFIG_PLATFORM_EMERY
+    .title_font = fonts_get_system_font(FONT_KEY_GOTHIC_18),
+#else
     .title_font = system_theme_get_font_for_default_size(TextStyleFont_MenuCellTitle),
+#endif
   };
 
   // radio button icons are enabled by default
