@@ -31,8 +31,9 @@ void pbl_soc_idle(pbl_tick_t max_ticks) {
 
   __disable_irq();
 
-  if (pbl_idle_confirm()) {
-    if (max_ticks < MIN_FULL_SLEEP_TICKS || !soc_nrf_sleep_full_is_allowed()) {
+  max_ticks = pbl_idle_ticks();
+  if (max_ticks >= 2) {
+    if (max_ticks < MIN_FULL_SLEEP_TICKS) {
       RtcTicks sleep_start_ticks = rtc_get_ticks();
 
       NRF_NVMC->ICACHECNF &= ~NVMC_ICACHECNF_CACHEEN_Msk;
@@ -45,10 +46,13 @@ void pbl_soc_idle(pbl_tick_t max_ticks) {
 
       s_analytics_sleep_ticks += rtc_get_ticks() - sleep_start_ticks;
     } else {
+      const bool full_sleep = soc_nrf_sleep_full_is_allowed();
       const RtcTicks sleep_ticks = max_ticks - EARLY_WAKEUP_TICKS;
       RtcTicks elapsed_ticks;
 
-      flash_power_down_for_stop_mode();
+      if (full_sleep) {
+        flash_power_down_for_stop_mode();
+      }
 
       rtc_alarm_set(sleep_ticks);
       rtc_systick_pause();
@@ -63,12 +67,14 @@ void pbl_soc_idle(pbl_tick_t max_ticks) {
 
       rtc_systick_resume();
       elapsed_ticks = rtc_alarm_get_elapsed_ticks();
-      pbl_idle_slept(elapsed_ticks);
 
-      flash_power_up_after_stop_mode();
-      task_watchdog_step_elapsed_time_ms((elapsed_ticks * 1000) / RTC_TICKS_HZ);
-
-      s_analytics_full_sleep_ticks += elapsed_ticks;
+      if (full_sleep) {
+        flash_power_up_after_stop_mode();
+        task_watchdog_step_elapsed_time_ms((elapsed_ticks * 1000) / RTC_TICKS_HZ);
+        s_analytics_full_sleep_ticks += elapsed_ticks;
+      } else {
+        s_analytics_sleep_ticks += elapsed_ticks;
+      }
     }
   }
 

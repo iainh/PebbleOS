@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "pbl/kernel/irq.h"
+#include "pbl/kernel/idle.h"
 #include "pbl/kernel/types.h"
 #include <pbl/drivers/rtc.h>
 
@@ -334,6 +335,8 @@ void rtc_init(void) {
 #endif
 }
 
+static RtcIntervalTicks s_last_systick;
+
 void rtc_enable_synthetic_systick(void) {
   // Now that the RTC is awake, we can switch from SysTick to RTC interrupt
   // ticks.  We need to do this so that we actually get ticks in wfi, since
@@ -343,19 +346,23 @@ void rtc_enable_synthetic_systick(void) {
     rtc_init();
   }
 
+  s_last_systick = prv_get_rtc_interval_ticks();
+  nrf_rtc_event_clear(BOARD_RTC_INST, NRF_RTC_EVENT_TICK);
   nrf_rtc_event_enable(BOARD_RTC_INST, NRF_RTC_EVENT_TICK);
   nrf_rtc_int_enable(BOARD_RTC_INST, NRF_RTC_INT_TICK_MASK);
 }
 
 void rtc_systick_pause(void) {
-  // We don't want the fine-grained interrupts at 100Hz when we're in stop
-  // mode -- we have a timer set for that, after all.
+  // The compare alarm owns the wake deadline while idle.
   nrf_rtc_event_disable(BOARD_RTC_INST, NRF_RTC_EVENT_TICK);
   nrf_rtc_int_disable(BOARD_RTC_INST, NRF_RTC_INT_TICK_MASK);
 }
 
 void rtc_systick_resume(void) {
   nrf_rtc_event_clear(BOARD_RTC_INST, NRF_RTC_EVENT_TICK);
+  RtcIntervalTicks now = prv_get_rtc_interval_ticks();
+  pbl_idle_slept(prv_elapsed_ticks(s_last_systick, now));
+  s_last_systick = now;
   nrf_rtc_event_enable(BOARD_RTC_INST, NRF_RTC_EVENT_TICK);
   nrf_rtc_int_enable(BOARD_RTC_INST, NRF_RTC_INT_TICK_MASK);
 }
@@ -416,10 +423,17 @@ bool rtc_alarm_is_initialized(void) {
 //! we *do* need to call into systick!
 void rtc_irq_handler(void) {
   if (nrf_rtc_event_check(BOARD_RTC_INST, NRF_RTC_EVENT_TICK)) {
-    extern void SysTick_Handler();
-
     nrf_rtc_event_clear(BOARD_RTC_INST, NRF_RTC_EVENT_TICK);
-    SysTick_Handler();
+    RtcIntervalTicks now = prv_get_rtc_interval_ticks();
+    RtcIntervalTicks elapsed = prv_elapsed_ticks(s_last_systick, now);
+    s_last_systick = now;
+    if (elapsed) {
+      // Coalesced tick events still represent elapsed wall time, not one tick.
+      if (elapsed > 1) {
+        pbl_idle_slept(elapsed - 1);
+      }
+      pbl_kernel_tick_isr();
+    }
   }
 
   if (nrf_rtc_event_check(BOARD_RTC_INST, NRF_RTC_EVENT_COMPARE_0)) {

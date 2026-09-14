@@ -116,5 +116,7 @@ const char* time_t_to_string(char* buffer, time_t t);
 void rtc_irq_handler(void);
 void rtc_enable_synthetic_systick(void);
 void rtc_systick_pause(void);
+//! Resume with interrupts masked; accounts all ticks since the last tick ISR.
+//! Callers must not also pass the sleep interval to pbl_idle_slept().
 void rtc_systick_resume(void);
 #endif
