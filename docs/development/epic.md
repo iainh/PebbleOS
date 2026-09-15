@@ -25,10 +25,11 @@ The driver supports these formats:
 - L8 colour data with an ARGB8888 palette
 - A2, A4 and A8 alpha data; A4 and A8 layers can also mask the preceding layer
 
-`epic_fill`, `epic_copy` and `epic_blend` serialize access to the peripheral,
-perform cache maintenance and wait for interrupt-driven completion. Rotation
-angles use tenths of a degree. A scale value of zero selects a 1:1 scale.
-Set `color_argb8888` to choose the RGB colour drawn by an alpha-only layer.
+`epic_fill`, `epic_fill_gradient`, `epic_copy` and `epic_blend` serialize access
+to the peripheral, perform cache maintenance and wait for interrupt-driven
+completion. A gradient supplies the ARGB8888 colour at each corner. Rotation
+angles use tenths of a degree. A scale value of zero selects a 1:1 scale. Set
+`color_argb8888` to choose the RGB colour drawn by an alpha-only layer.
 
 The base API is synchronous. Don't call it from an interrupt handler.
 
@@ -46,10 +47,11 @@ Build and flash Getafix firmware, open the serial console, then run:
 epic benchmark
 ```
 
-The command checks complete fill and copy output, alpha blending, asymmetric
-rotation and mirroring, scaling, A8 masking and L8 palette expansion on private
-32 × 32 buffers. It reports the CPU cycles spent waiting for each operation and
-ends with `output=valid` when the generated pixels match the expected values.
+The command checks complete solid and gradient fills, copy output, alpha
+blending, asymmetric rotation and mirroring, scaling, A8 masking and L8 palette
+expansion on private 32 × 32 buffers. It reports the CPU cycles spent waiting
+for each operation and ends with `output=valid` when the generated pixels match
+the expected values.
 
 Also check these display states on hardware:
 

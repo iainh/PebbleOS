@@ -622,10 +622,10 @@ void command_epic_benchmark(void) {
   char buffer[240];
   prompt_send_response_fmt(
       buffer, sizeof(buffer),
-      "EPIC %s: fill=%" PRIu32 " copy=%" PRIu32 " blend=%" PRIu32
+      "EPIC %s: fill=%" PRIu32 " gradient=%" PRIu32 " copy=%" PRIu32 " blend=%" PRIu32
       " rotate=%" PRIu32 " scale=%" PRIu32 " mirror=%" PRIu32
       " mask=%" PRIu32 " l8=%" PRIu32 " cycles; output=%s",
-      success ? "PASS" : "FAIL", result.fill_cycles, result.copy_cycles,
+      success ? "PASS" : "FAIL", result.fill_cycles, result.gradient_cycles, result.copy_cycles,
       result.blend_cycles, result.rotate_cycles, result.scale_cycles,
       result.mirror_cycles, result.mask_cycles, result.l8_cycles,
       result.output_valid ? "valid" : "invalid");

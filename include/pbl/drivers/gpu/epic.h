@@ -60,7 +60,15 @@ typedef struct {
 } EpicBuffer;
 
 typedef struct {
+  uint32_t top_left;
+  uint32_t top_right;
+  uint32_t bottom_left;
+  uint32_t bottom_right;
+} EpicGradient;
+
+typedef struct {
   uint32_t fill_cycles;
+  uint32_t gradient_cycles;
   uint32_t copy_cycles;
   uint32_t blend_cycles;
   uint32_t rotate_cycles;
@@ -76,10 +84,13 @@ typedef void (*EpicCompleteCallback)(void *context);
 
 bool epic_init(void);
 bool epic_fill(const EpicBuffer *destination, uint32_t argb8888);
+bool epic_fill_gradient(const EpicBuffer *destination, const EpicGradient *gradient);
 bool epic_copy(const EpicLayer *source, const EpicBuffer *destination);
 bool epic_blend(const EpicLayer *layers, size_t layer_count, const EpicBuffer *destination);
 bool epic_fill_async(const EpicBuffer *destination, uint32_t argb8888,
                      EpicCompleteCallback callback, void *context);
+bool epic_fill_gradient_async(const EpicBuffer *destination, const EpicGradient *gradient,
+                              EpicCompleteCallback callback, void *context);
 bool epic_copy_async(const EpicLayer *source, const EpicBuffer *destination,
                      EpicCompleteCallback callback, void *context);
 bool epic_blend_async(const EpicLayer *layers, size_t layer_count, const EpicBuffer *destination,

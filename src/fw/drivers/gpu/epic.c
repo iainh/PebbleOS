@@ -324,6 +324,35 @@ static bool prv_fill(const EpicBuffer *destination, uint32_t argb8888, pbl_timeo
   return prv_start_locked(HAL_EPIC_FillStart_IT(&s_handle, &fill));
 }
 
+static void prv_set_hal_color(EPIC_ColorDef *destination, uint32_t argb8888) {
+  destination->ch.color_r = (argb8888 >> 16) & 0xff;
+  destination->ch.color_g = (argb8888 >> 8) & 0xff;
+  destination->ch.color_b = argb8888 & 0xff;
+  destination->ch.alpha = argb8888 >> 24;
+}
+
+static bool prv_fill_gradient(const EpicBuffer *destination, const EpicGradient *gradient,
+                              pbl_timeout_t timeout, EpicCompleteCallback callback, void *context,
+                              uint32_t *generation) {
+  if (!gradient || !prv_begin(destination, timeout, callback, context, generation)) {
+    return false;
+  }
+
+  EPIC_GradCfgTypeDef fill;
+  HAL_EPIC_FillGradDataInit(&fill);
+  fill.start = destination->data;
+  fill.color_mode = prv_hal_format(destination->format);
+  fill.width = destination->width;
+  fill.height = destination->height;
+  fill.total_width = destination->stride_pixels;
+  prv_set_hal_color(&fill.color[0][0], gradient->top_left);
+  prv_set_hal_color(&fill.color[0][1], gradient->top_right);
+  prv_set_hal_color(&fill.color[1][0], gradient->bottom_left);
+  prv_set_hal_color(&fill.color[1][1], gradient->bottom_right);
+
+  return prv_start_locked(HAL_EPIC_FillGrad_IT(&s_handle, &fill));
+}
+
 static bool prv_copy(const EpicLayer *source, const EpicBuffer *destination, pbl_timeout_t timeout,
                      EpicCompleteCallback callback, void *context, uint32_t *generation) {
   if (!source || !prv_valid_input(source) || source->alpha_mode == EpicAlphaMode_Mask) {
@@ -380,6 +409,15 @@ bool epic_fill(const EpicBuffer *destination, uint32_t argb8888) {
   return prv_wait(generation);
 }
 
+bool epic_fill_gradient(const EpicBuffer *destination, const EpicGradient *gradient) {
+  uint32_t generation;
+  if (!prv_fill_gradient(destination, gradient, PBL_FOREVER, prv_sync_complete, NULL,
+                         &generation)) {
+    return false;
+  }
+  return prv_wait(generation);
+}
+
 bool epic_copy(const EpicLayer *source, const EpicBuffer *destination) {
   uint32_t generation;
   if (!prv_copy(source, destination, PBL_FOREVER, prv_sync_complete, NULL, &generation)) {
@@ -400,6 +438,11 @@ bool epic_blend(const EpicLayer *layers, size_t layer_count, const EpicBuffer *d
 bool epic_fill_async(const EpicBuffer *destination, uint32_t argb8888,
                      EpicCompleteCallback callback, void *context) {
   return prv_fill(destination, argb8888, PBL_FOREVER, callback, context, NULL);
+}
+
+bool epic_fill_gradient_async(const EpicBuffer *destination, const EpicGradient *gradient,
+                              EpicCompleteCallback callback, void *context) {
+  return prv_fill_gradient(destination, gradient, PBL_FOREVER, callback, context, NULL);
 }
 
 bool epic_copy_async(const EpicLayer *source, const EpicBuffer *destination,
@@ -428,6 +471,11 @@ void epic_build_gcolor8_palette(uint32_t palette[256]) {
 static uint32_t prv_measure_fill(const EpicBuffer *buffer, uint32_t color) {
   uint32_t start = DWT->CYCCNT;
   return epic_fill(buffer, color) ? DWT->CYCCNT - start : 0;
+}
+
+static uint32_t prv_measure_gradient(const EpicBuffer *buffer, const EpicGradient *gradient) {
+  uint32_t start = DWT->CYCCNT;
+  return epic_fill_gradient(buffer, gradient) ? DWT->CYCCNT - start : 0;
 }
 
 static uint32_t prv_measure_copy(const EpicLayer *source, const EpicBuffer *buffer) {
@@ -500,6 +548,19 @@ bool epic_run_benchmark(EpicBenchmarkResult *result) {
 
   result->fill_cycles = prv_measure_fill(&a, 0xffff0000);
   if (!result->fill_cycles || !prv_all_pixels_equal(s_benchmark_a, 0xf800)) {
+    return false;
+  }
+  EpicGradient gradient = {
+      .top_left = 0xffff0000,
+      .top_right = 0xff00ff00,
+      .bottom_left = 0xff0000ff,
+      .bottom_right = 0xffffffff,
+  };
+  result->gradient_cycles = prv_measure_gradient(&output, &gradient);
+  if (!result->gradient_cycles || s_benchmark_output[0] != 0xf800 ||
+      s_benchmark_output[EPIC_BENCHMARK_SIDE - 1] != 0x07e0 ||
+      s_benchmark_output[EPIC_BENCHMARK_PIXELS - EPIC_BENCHMARK_SIDE] != 0x001f ||
+      s_benchmark_output[EPIC_BENCHMARK_PIXELS - 1] != 0xffff) {
     return false;
   }
   if (!epic_fill(&b, 0xff0000ff)) {
