@@ -46,10 +46,10 @@ Build and flash Getafix firmware, open the serial console, then run:
 epic benchmark
 ```
 
-The command checks fill, copy, alpha blending, rotation and L8 palette
-expansion on private 32 × 32 buffers. It reports the CPU cycles spent waiting
-for each operation and ends with `output=valid` when the generated pixels match
-the expected values.
+The command checks complete fill and copy output, alpha blending, asymmetric
+rotation and mirroring, scaling, A8 masking and L8 palette expansion on private
+32 × 32 buffers. It reports the CPU cycles spent waiting for each operation and
+ends with `output=valid` when the generated pixels match the expected values.
 
 Also check these display states on hardware:
 

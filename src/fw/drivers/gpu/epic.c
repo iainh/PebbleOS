@@ -41,6 +41,7 @@ static EpicOperation s_operation;
 static ALIGN(32) uint16_t s_benchmark_a[EPIC_BENCHMARK_PIXELS];
 static ALIGN(32) uint16_t s_benchmark_b[EPIC_BENCHMARK_PIXELS];
 static ALIGN(32) uint16_t s_benchmark_output[EPIC_BENCHMARK_PIXELS];
+static ALIGN(32) uint8_t s_benchmark_mask[EPIC_BENCHMARK_PIXELS];
 static ALIGN(32) uint32_t s_benchmark_palette[256];
 
 static uint32_t prv_hal_format(EpicPixelFormat format) {
@@ -439,6 +440,44 @@ static uint32_t prv_measure_blend(const EpicLayer *layers, size_t count, const E
   return epic_blend(layers, count, buffer) ? DWT->CYCCNT - start : 0;
 }
 
+static bool prv_all_pixels_equal(const uint16_t *buffer, uint16_t value) {
+  for (size_t i = 0; i < EPIC_BENCHMARK_PIXELS; ++i) {
+    if (buffer[i] != value) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static void prv_build_asymmetric_pattern(uint16_t *buffer) {
+  for (uint16_t y = 0; y < EPIC_BENCHMARK_SIDE; ++y) {
+    for (uint16_t x = 0; x < EPIC_BENCHMARK_SIDE; ++x) {
+      buffer[y * EPIC_BENCHMARK_SIDE + x] = ((x + 1) << 11) | ((y + 1) << 5) | ((x + y) & 31);
+    }
+  }
+}
+
+static bool prv_is_reversed_pattern(const uint16_t *output, const uint16_t *input) {
+  for (uint16_t y = 0; y < EPIC_BENCHMARK_SIDE; ++y) {
+    for (uint16_t x = 0; x < EPIC_BENCHMARK_SIDE; ++x) {
+      size_t input_index =
+          (EPIC_BENCHMARK_SIDE - y - 1) * EPIC_BENCHMARK_SIDE + EPIC_BENCHMARK_SIDE - x - 1;
+      if (output[y * EPIC_BENCHMARK_SIDE + x] != input[input_index]) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+static size_t prv_count_nonzero_pixels(const uint16_t *buffer) {
+  size_t count = 0;
+  for (size_t i = 0; i < EPIC_BENCHMARK_PIXELS; ++i) {
+    count += buffer[i] != 0;
+  }
+  return count;
+}
+
 bool epic_run_benchmark(EpicBenchmarkResult *result) {
   if (!result) {
     return false;
@@ -460,7 +499,7 @@ bool epic_run_benchmark(EpicBenchmarkResult *result) {
   output.data = (uint8_t *)s_benchmark_output;
 
   result->fill_cycles = prv_measure_fill(&a, 0xffff0000);
-  if (!result->fill_cycles || s_benchmark_a[0] != 0xf800) {
+  if (!result->fill_cycles || !prv_all_pixels_equal(s_benchmark_a, 0xf800)) {
     return false;
   }
   if (!epic_fill(&b, 0xff0000ff)) {
@@ -477,7 +516,7 @@ bool epic_run_benchmark(EpicBenchmarkResult *result) {
       .alpha = 255,
   };
   result->copy_cycles = prv_measure_copy(&source, &output);
-  if (!result->copy_cycles || s_benchmark_output[0] != 0xf800) {
+  if (!result->copy_cycles || !prv_all_pixels_equal(s_benchmark_output, 0xf800)) {
     return false;
   }
 
@@ -489,16 +528,81 @@ bool epic_run_benchmark(EpicBenchmarkResult *result) {
     return false;
   }
 
-  source.data = (uint8_t *)s_benchmark_b;
-  source.angle = 900;
+  prv_build_asymmetric_pattern(s_benchmark_a);
+  source.data = (uint8_t *)s_benchmark_a;
+  source.angle = 1800;
   source.pivot_x = EPIC_BENCHMARK_SIDE / 2;
   source.pivot_y = EPIC_BENCHMARK_SIDE / 2;
   result->rotate_cycles = prv_measure_blend(&source, 1, &output);
-  if (!result->rotate_cycles) {
+  if (!result->rotate_cycles || !prv_is_reversed_pattern(s_benchmark_output, s_benchmark_a)) {
     return false;
   }
 
-  uint8_t *l8 = (uint8_t *)s_benchmark_a;
+  source.angle = 0;
+  source.pivot_x = 0;
+  source.pivot_y = 0;
+  source.h_mirror = true;
+  source.v_mirror = true;
+  result->mirror_cycles = prv_measure_blend(&source, 1, &output);
+  if (!result->mirror_cycles || !prv_is_reversed_pattern(s_benchmark_output, s_benchmark_a)) {
+    return false;
+  }
+
+  source.h_mirror = false;
+  source.v_mirror = false;
+  source.scale_x = EPIC_SCALE_ONE * 2;
+  source.scale_y = EPIC_SCALE_ONE * 2;
+  if (!epic_fill(&output, 0xff000000)) {
+    return false;
+  }
+  result->scale_cycles = prv_measure_blend(&source, 1, &output);
+  size_t scaled_pixels = prv_count_nonzero_pixels(s_benchmark_output);
+  if (!result->scale_cycles || scaled_pixels < 128 || scaled_pixels > 512) {
+    return false;
+  }
+
+  if (!epic_fill(&a, 0xffff0000) || !epic_fill(&b, 0xff0000ff)) {
+    return false;
+  }
+  for (uint16_t y = 0; y < EPIC_BENCHMARK_SIDE; ++y) {
+    for (uint16_t x = 0; x < EPIC_BENCHMARK_SIDE; ++x) {
+      s_benchmark_mask[y * EPIC_BENCHMARK_SIDE + x] = x < EPIC_BENCHMARK_SIDE / 2 ? 0 : 255;
+    }
+  }
+  EpicLayer mask_layers[3] = {
+      {
+          .data = (uint8_t *)s_benchmark_a,
+          .format = EpicPixelFormat_RGB565,
+          .width = EPIC_BENCHMARK_SIDE,
+          .height = EPIC_BENCHMARK_SIDE,
+          .stride_pixels = EPIC_BENCHMARK_SIDE,
+          .alpha = 255,
+      },
+      {
+          .data = (uint8_t *)s_benchmark_b,
+          .format = EpicPixelFormat_RGB565,
+          .width = EPIC_BENCHMARK_SIDE,
+          .height = EPIC_BENCHMARK_SIDE,
+          .stride_pixels = EPIC_BENCHMARK_SIDE,
+          .alpha = 255,
+      },
+      {
+          .data = s_benchmark_mask,
+          .format = EpicPixelFormat_A8,
+          .alpha_mode = EpicAlphaMode_Mask,
+          .width = EPIC_BENCHMARK_SIDE,
+          .height = EPIC_BENCHMARK_SIDE,
+          .stride_pixels = EPIC_BENCHMARK_SIDE,
+          .alpha = 255,
+      },
+  };
+  result->mask_cycles = prv_measure_blend(mask_layers, 3, &output);
+  if (!result->mask_cycles || s_benchmark_output[0] != 0xf800 ||
+      s_benchmark_output[EPIC_BENCHMARK_SIDE - 1] != 0x001f) {
+    return false;
+  }
+
+  uint8_t *l8 = s_benchmark_mask;
   memset(l8, 0xc0, EPIC_BENCHMARK_PIXELS);
   l8[0] = 0xff;
   epic_build_gcolor8_palette(s_benchmark_palette);

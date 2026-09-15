@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define EPIC_SCALE_ONE 1024
+
 typedef enum {
   EpicPixelFormat_RGB565,
   EpicPixelFormat_ARGB8565,
@@ -62,6 +64,9 @@ typedef struct {
   uint32_t copy_cycles;
   uint32_t blend_cycles;
   uint32_t rotate_cycles;
+  uint32_t scale_cycles;
+  uint32_t mirror_cycles;
+  uint32_t mask_cycles;
   uint32_t l8_cycles;
   bool output_valid;
 } EpicBenchmarkResult;
