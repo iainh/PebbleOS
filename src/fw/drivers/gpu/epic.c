@@ -82,6 +82,10 @@ static bool prv_is_yuv422(EpicPixelFormat format) {
   return format == EpicPixelFormat_YUV422_YUYV || format == EpicPixelFormat_YUV422_UYVY;
 }
 
+static bool prv_is_yuv(EpicPixelFormat format) {
+  return prv_is_yuv422(format) || format == EpicPixelFormat_YUV420_Planar;
+}
+
 static uint8_t prv_bits_per_pixel(EpicPixelFormat format) {
   switch (format) {
     case EpicPixelFormat_RGB565:
@@ -326,6 +330,7 @@ static bool prv_wait(uint32_t generation) {
 
   pbl_mutex_lock(&s_mutex, PBL_FOREVER);
   HAL_NVIC_DisableIRQ(EPIC_IRQn);
+  HAL_NVIC_DisableIRQ(EZIP_IRQn);
   bool timed_out = s_operation.active && s_operation.generation == generation;
   if (timed_out) {
     PBL_LOG_ERR("EPIC operation timed out: state=%d error=0x%lx", (int)s_handle.State,
@@ -335,6 +340,7 @@ static bool prv_wait(uint32_t generation) {
     soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
     pbl_sem_give(&s_idle);
   } else {
+    HAL_NVIC_EnableIRQ(EZIP_IRQn);
     HAL_NVIC_EnableIRQ(EPIC_IRQn);
   }
   pbl_mutex_unlock(&s_mutex);
@@ -376,7 +382,7 @@ static bool prv_begin(const EpicBuffer *destination, pbl_timeout_t timeout,
   if (generation) {
     *generation = s_operation.generation;
   }
-  prv_cache_prepare_destination(destination->data, s_operation.destination_size);
+  prv_cache_prepare_destination(s_operation.destination, s_operation.destination_size);
   s_handle.XferCpltCallback = prv_complete_callback;
   soc_sf32lb_sleep_block(SOC_SF32LB_DEEPWFI);
   return true;
@@ -612,6 +618,124 @@ bool epic_blend(const EpicLayer *layers, size_t layer_count, const EpicBuffer *d
     return false;
   }
   return prv_wait(generation);
+}
+
+static bool prv_render_layer_is_supported(const EpicLayer *layer) {
+  return prv_valid_input(layer) && layer->format != EpicPixelFormat_EZIP && !layer->angle &&
+         !layer->h_mirror && !layer->v_mirror &&
+         (!layer->scale_x || layer->scale_x == EPIC_SCALE_ONE) &&
+         (!layer->scale_y || layer->scale_y == EPIC_SCALE_ONE);
+}
+
+static bool prv_wait_render_idle(void) {
+  uint32_t start = HAL_GetTick();
+  uint32_t timeout_ticks = (EPIC_OPERATION_TIMEOUT_MS * HAL_TICK_PER_SECOND + 999) / 1000;
+  while (HAL_EPIC_IsHWBusy(&s_handle)) {
+    if (HAL_GetElapsedTick(start, HAL_GetTick()) >= timeout_ticks) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool epic_render_list(const EpicLayer *layers, size_t layer_count, const EpicBuffer *destination) {
+  if (!layers || !layer_count || !destination || !destination->data ||
+      !prv_valid_region(destination->format, destination->stride_pixels, destination->buffer_height,
+                        destination->data_x, destination->data_y, destination->width,
+                        destination->height) ||
+      !prv_valid_output_format(destination->format)) {
+    return false;
+  }
+  EpicPixelFormat render_format = layers[0].format;
+  const uint32_t *render_palette = layers[0].palette;
+  uint16_t render_palette_entries = layers[0].palette_entries;
+  EpicPixelFormat mask_format = EpicPixelFormat_RGB565;
+  bool has_mask_format = false;
+  for (size_t i = 0; i < layer_count; ++i) {
+    if (!prv_render_layer_is_supported(&layers[i]) || layers[i].alpha_mode == EpicAlphaMode_Mask) {
+      return false;
+    }
+    if (prv_is_yuv(layers[i].format) || layers[i].format != render_format ||
+        (render_format == EpicPixelFormat_L8 &&
+         (layers[i].palette != render_palette ||
+          layers[i].palette_entries != render_palette_entries))) {
+      return false;
+    }
+    if (i + 1 < layer_count && layers[i + 1].alpha_mode == EpicAlphaMode_Mask) {
+      if (!prv_render_layer_is_supported(&layers[++i])) {
+        return false;
+      }
+      if (has_mask_format && layers[i].format != mask_format) {
+        return false;
+      }
+      mask_format = layers[i].format;
+      has_mask_format = true;
+    }
+  }
+
+  pbl_sem_take(&s_idle, PBL_FOREVER);
+  pbl_mutex_lock(&s_mutex, PBL_FOREVER);
+  if (!prv_init_locked()) {
+    pbl_mutex_unlock(&s_mutex);
+    pbl_sem_give(&s_idle);
+    return false;
+  }
+
+  uint8_t *destination_data =
+      prv_region_data(destination->data, destination->format, destination->stride_pixels,
+                      destination->data_x, destination->data_y);
+  size_t destination_size = prv_region_size(destination->format, destination->stride_pixels,
+                                            destination->width, destination->height);
+  prv_cache_prepare_destination(destination_data, destination_size);
+  soc_sf32lb_sleep_block(SOC_SF32LB_DEEPWFI);
+
+  EPIC_LayerConfigTypeDef output;
+  prv_configure_output(&output, destination);
+  bool started = false;
+  bool success = true;
+  for (size_t i = 0; i < layer_count && success; ++i) {
+    EPIC_LayerConfigTypeDef input;
+    EPIC_LayerConfigTypeDef mask;
+    EPIC_LayerConfigTypeDef *mask_ptr = NULL;
+    prv_configure_input(&input, &layers[i]);
+    if (i + 1 < layer_count && layers[i + 1].alpha_mode == EpicAlphaMode_Mask) {
+      prv_configure_input(&mask, &layers[++i]);
+      mask_ptr = &mask;
+    }
+
+    if (started && !prv_wait_render_idle()) {
+      PBL_LOG_ERR("EPIC render list timed out");
+      success = false;
+      break;
+    }
+    HAL_StatusTypeDef status = started
+                                   ? HAL_EPIC_ContBlendRepeat(&s_handle, &input, mask_ptr, &output)
+                                   : HAL_EPIC_ContBlendStart(&s_handle, &input, mask_ptr, &output);
+    if (status != HAL_OK) {
+      PBL_LOG_ERR("EPIC render list failed: %d", (int)status);
+      success = false;
+      break;
+    }
+    started = true;
+  }
+
+  if (success && !prv_wait_render_idle()) {
+    PBL_LOG_ERR("EPIC render list timed out");
+    success = false;
+  }
+  if (success && HAL_EPIC_ContBlendStop(&s_handle) != HAL_OK) {
+    PBL_LOG_ERR("EPIC render list stop failed");
+    success = false;
+  }
+  if (!success) {
+    prv_recover_locked();
+  }
+
+  prv_cache_complete_destination(destination_data, destination_size);
+  soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
+  pbl_mutex_unlock(&s_mutex);
+  pbl_sem_give(&s_idle);
+  return success;
 }
 
 bool epic_fill_async(const EpicBuffer *destination, uint32_t argb8888,
@@ -924,6 +1048,34 @@ bool epic_run_benchmark(EpicBenchmarkResult *result) {
       .alpha = 255,
   };
   result->yuv_cycles = prv_measure_blend(&source, 1, &output);
-  result->output_valid = result->yuv_cycles && prv_all_pixels_equal(s_benchmark_output, 0x0000);
+  if (!result->yuv_cycles || !prv_all_pixels_equal(s_benchmark_output, 0x0000) ||
+      !epic_fill(&a, 0xffff0000) || !epic_fill(&b, 0xff0000ff) || !epic_fill(&output, 0xff000000)) {
+    return false;
+  }
+
+  EpicLayer render_layers[2] = {
+      {
+          .data = (uint8_t *)s_benchmark_a,
+          .format = EpicPixelFormat_RGB565,
+          .width = EPIC_BENCHMARK_SIDE,
+          .height = EPIC_BENCHMARK_SIDE,
+          .stride_pixels = EPIC_BENCHMARK_SIDE,
+          .alpha = 255,
+      },
+      {
+          .data = (uint8_t *)s_benchmark_b,
+          .format = EpicPixelFormat_RGB565,
+          .width = EPIC_BENCHMARK_SIDE / 2,
+          .height = EPIC_BENCHMARK_SIDE,
+          .stride_pixels = EPIC_BENCHMARK_SIDE,
+          .x = EPIC_BENCHMARK_SIDE / 2,
+          .alpha = 255,
+      },
+  };
+  uint32_t render_start = DWT->CYCCNT;
+  bool rendered = epic_render_list(render_layers, 2, &output);
+  result->render_cycles = DWT->CYCCNT - render_start;
+  result->output_valid = rendered && result->render_cycles && s_benchmark_output[0] == 0xf800 &&
+                         s_benchmark_output[EPIC_BENCHMARK_SIDE - 1] == 0x001f;
   return result->output_valid;
 }

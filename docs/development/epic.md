@@ -44,6 +44,13 @@ with a canvas-space rectangle and adjusts its source rectangle. Packed A2 and
 A4 source rectangles must start on a byte boundary. YUV422 rectangles must be
 chroma-pair aligned; YUV420 rectangles must use even coordinates and sizes.
 
+`epic_render_list` composites layers into an existing destination in order. It
+keeps EPIC in continuous mode across the list, so repeated drawing avoids full
+per-operation setup. An A4 or A8 mask immediately following a colour layer is
+applied to that layer. Colour entries must share a pixel format, and L8 entries
+must share a palette. Continuous mode doesn't support transformed, YUV or EZIP
+layers.
+
 The base API is synchronous. Don't call it from an interrupt handler.
 
 The corresponding `*_async` functions return immediately and report
@@ -63,9 +70,10 @@ epic benchmark
 The command checks complete solid and gradient fills, copy output, alpha
 blending, asymmetric rotation and mirroring, scaling, A8 masking, L8 palette
 expansion, monochrome input and YUV422 conversion on private 32 × 32 buffers.
-It reports the CPU cycles spent waiting for each operation and ends with
-`output=valid` when the generated pixels match the expected values. Validate
-EZIP with a product image because the benchmark doesn't embed compressed data.
+It also checks a two-entry continuous render list. The command reports the CPU
+cycles spent waiting for each operation and ends with `output=valid` when the
+generated pixels match the expected values. Validate EZIP with a product image
+because the benchmark doesn't embed compressed data.
 
 Also check these display states on hardware:
 

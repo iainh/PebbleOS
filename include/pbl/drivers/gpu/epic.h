@@ -101,6 +101,7 @@ typedef struct {
   uint32_t l8_cycles;
   uint32_t mono_cycles;
   uint32_t yuv_cycles;
+  uint32_t render_cycles;
   bool output_valid;
 } EpicBenchmarkResult;
 
@@ -115,6 +116,7 @@ bool epic_fill(const EpicBuffer *destination, uint32_t argb8888);
 bool epic_fill_gradient(const EpicBuffer *destination, const EpicGradient *gradient);
 bool epic_copy(const EpicLayer *source, const EpicBuffer *destination);
 bool epic_blend(const EpicLayer *layers, size_t layer_count, const EpicBuffer *destination);
+bool epic_render_list(const EpicLayer *layers, size_t layer_count, const EpicBuffer *destination);
 bool epic_fill_async(const EpicBuffer *destination, uint32_t argb8888,
                      EpicCompleteCallback callback, void *context);
 bool epic_fill_gradient_async(const EpicBuffer *destination, const EpicGradient *gradient,

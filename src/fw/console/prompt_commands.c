@@ -625,11 +625,11 @@ void command_epic_benchmark(void) {
       "EPIC %s: fill=%" PRIu32 " gradient=%" PRIu32 " copy=%" PRIu32 " blend=%" PRIu32
       " rotate=%" PRIu32 " scale=%" PRIu32 " mirror=%" PRIu32
       " mask=%" PRIu32 " l8=%" PRIu32 " mono=%" PRIu32 " yuv=%" PRIu32
-      " cycles; output=%s",
+      " render=%" PRIu32 " cycles; output=%s",
       success ? "PASS" : "FAIL", result.fill_cycles, result.gradient_cycles, result.copy_cycles,
       result.blend_cycles, result.rotate_cycles, result.scale_cycles, result.mirror_cycles,
       result.mask_cycles, result.l8_cycles, result.mono_cycles, result.yuv_cycles,
-      result.output_valid ? "valid" : "invalid");
+      result.render_cycles, result.output_valid ? "valid" : "invalid");
 }
 #endif
 
