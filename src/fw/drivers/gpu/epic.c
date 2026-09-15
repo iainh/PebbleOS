@@ -23,6 +23,7 @@ PBL_LOG_MODULE_DEFINE(driver_gpu_epic, CONFIG_DRIVER_GPU_EPIC_LOG_LEVEL);
 #define EPIC_BENCHMARK_PIXELS (EPIC_BENCHMARK_SIDE * EPIC_BENCHMARK_SIDE)
 
 static EPIC_HandleTypeDef s_handle;
+static EZIP_HandleTypeDef s_ezip_handle;
 static PBL_MUTEX_DEFINE(s_mutex);
 static PBL_SEM_DEFINE(s_complete, 0, 1);
 static PBL_SEM_DEFINE(s_idle, 1, 1);
@@ -63,8 +64,22 @@ static uint32_t prv_hal_format(EpicPixelFormat format) {
       return EPIC_COLOR_A4;
     case EpicPixelFormat_A2:
       return EPIC_COLOR_A2;
+    case EpicPixelFormat_Mono:
+      return EPIC_COLOR_MONO;
+    case EpicPixelFormat_YUV422_YUYV:
+      return EPIC_COLOR_YUV422_PACKED_YUYV;
+    case EpicPixelFormat_YUV422_UYVY:
+      return EPIC_COLOR_YUV422_PACKED_UYVY;
+    case EpicPixelFormat_YUV420_Planar:
+      return EPIC_COLOR_YUV420_PLANAR;
+    case EpicPixelFormat_EZIP:
+      return EPIC_COLOR_EZIP;
   }
   return UINT32_MAX;
+}
+
+static bool prv_is_yuv422(EpicPixelFormat format) {
+  return format == EpicPixelFormat_YUV422_YUYV || format == EpicPixelFormat_YUV422_UYVY;
 }
 
 static uint8_t prv_bits_per_pixel(EpicPixelFormat format) {
@@ -78,11 +93,18 @@ static uint8_t prv_bits_per_pixel(EpicPixelFormat format) {
       return 32;
     case EpicPixelFormat_L8:
     case EpicPixelFormat_A8:
+    case EpicPixelFormat_Mono:
+    case EpicPixelFormat_YUV420_Planar:
       return 8;
     case EpicPixelFormat_A4:
       return 4;
     case EpicPixelFormat_A2:
       return 2;
+    case EpicPixelFormat_YUV422_YUYV:
+    case EpicPixelFormat_YUV422_UYVY:
+      return 16;
+    case EpicPixelFormat_EZIP:
+      return 0;
   }
   return 0;
 }
@@ -114,9 +136,20 @@ static size_t prv_region_size(EpicPixelFormat format, uint16_t stride_pixels, ui
 
 static bool prv_valid_region(EpicPixelFormat format, uint16_t stride_pixels, uint16_t buffer_height,
                              uint16_t data_x, uint16_t data_y, uint16_t width, uint16_t height) {
+  if (format == EpicPixelFormat_EZIP) {
+    return width && height && !data_x && !data_y && stride_pixels == width &&
+           (!buffer_height || buffer_height == height);
+  }
   uint8_t bits_per_pixel = prv_bits_per_pixel(format);
   uint32_t effective_height = buffer_height ? buffer_height : (uint32_t)data_y + height;
-  return bits_per_pixel && width && height && stride_pixels >= width &&
+  bool chroma_aligned = true;
+  if (prv_is_yuv422(format)) {
+    chroma_aligned = !(data_x % 2) && !(width % 2) && !(stride_pixels % 2);
+  } else if (format == EpicPixelFormat_YUV420_Planar) {
+    chroma_aligned =
+        !(data_x % 2) && !(data_y % 2) && !(width % 2) && !(height % 2) && !(stride_pixels % 2);
+  }
+  return bits_per_pixel && chroma_aligned && width && height && stride_pixels >= width &&
          data_x <= stride_pixels - width && data_y <= effective_height &&
          height <= effective_height - data_y && prv_data_x_is_aligned(format, data_x);
 }
@@ -166,12 +199,22 @@ static bool prv_init_locked(void) {
   }
 
   memset(&s_handle, 0, sizeof(s_handle));
+  memset(&s_ezip_handle, 0, sizeof(s_ezip_handle));
+  s_ezip_handle.Instance = hwp_ezip1;
+  if (HAL_EZIP_Init(&s_ezip_handle) != HAL_OK) {
+    PBL_LOG_ERR("EZIP initialization failed");
+    return false;
+  }
   s_handle.Instance = hwp_epic;
+  s_handle.hezip = &s_ezip_handle;
   if (HAL_EPIC_Init(&s_handle) != HAL_OK) {
     PBL_LOG_ERR("EPIC initialization failed");
     return false;
   }
 
+  HAL_NVIC_SetPriority(EZIP_IRQn, 5, 0);
+  HAL_NVIC_ClearPendingIRQ(EZIP_IRQn);
+  HAL_NVIC_EnableIRQ(EZIP_IRQn);
   HAL_NVIC_SetPriority(EPIC_IRQn, 5, 0);
   HAL_NVIC_ClearPendingIRQ(EPIC_IRQn);
   HAL_NVIC_EnableIRQ(EPIC_IRQn);
@@ -232,21 +275,29 @@ bool epic_clip_layer(EpicLayer *layer, EpicRect clip) {
   }
 
   uint32_t data_x = (uint32_t)layer->data_x + x0 - layer->x;
-  if (!prv_data_x_is_aligned(layer->format, data_x)) {
+  uint32_t data_y = (uint32_t)layer->data_y + y0 - layer->y;
+  uint32_t width = x1 - x0;
+  uint32_t height = y1 - y0;
+  if (data_x > UINT16_MAX || data_y > UINT16_MAX ||
+      !prv_valid_region(layer->format, layer->stride_pixels, layer->buffer_height, data_x, data_y,
+                        width, height)) {
     return false;
   }
   layer->data_x = data_x;
-  layer->data_y += y0 - layer->y;
+  layer->data_y = data_y;
   layer->x = x0;
   layer->y = y0;
-  layer->width = x1 - x0;
-  layer->height = y1 - y0;
+  layer->width = width;
+  layer->height = height;
   return true;
 }
 
 static void prv_recover_locked(void) {
   HAL_NVIC_DisableIRQ(EPIC_IRQn);
+  HAL_NVIC_DisableIRQ(EZIP_IRQn);
   HAL_RCC_ResetModule(RCC_MOD_EPIC);
+  HAL_RCC_ResetModule(RCC_MOD_EZIP);
+  HAL_NVIC_ClearPendingIRQ(EZIP_IRQn);
   HAL_NVIC_ClearPendingIRQ(EPIC_IRQn);
   s_initialized = false;
   prv_init_locked();
@@ -351,6 +402,12 @@ static bool prv_valid_input(const EpicLayer *source) {
       prv_hal_format(source->format) == UINT32_MAX || source->alpha_mode > EpicAlphaMode_Mask) {
     return false;
   }
+  if (source->format == EpicPixelFormat_EZIP && !source->data_size) {
+    return false;
+  }
+  if (source->format == EpicPixelFormat_YUV420_Planar && (!source->u_data || !source->v_data)) {
+    return false;
+  }
   if (source->format == EpicPixelFormat_L8 &&
       (!source->palette || !source->palette_entries || source->palette_entries > 256)) {
     return false;
@@ -364,8 +421,10 @@ static bool prv_valid_input(const EpicLayer *source) {
 
 static void prv_configure_input(EPIC_LayerConfigTypeDef *input, const EpicLayer *source) {
   HAL_EPIC_LayerConfigInit(input);
-  input->data = prv_region_data(source->data, source->format, source->stride_pixels, source->data_x,
-                                source->data_y);
+  input->data = source->format == EpicPixelFormat_EZIP
+                    ? source->data
+                    : prv_region_data(source->data, source->format, source->stride_pixels,
+                                      source->data_x, source->data_y);
   input->color_mode = prv_hal_format(source->format);
   input->width = source->width;
   input->height = source->height;
@@ -376,7 +435,7 @@ static void prv_configure_input(EPIC_LayerConfigTypeDef *input, const EpicLayer 
   input->ax_mode =
       source->alpha_mode == EpicAlphaMode_Mask ? ALPHA_BLEND_MASK : ALPHA_BLEND_RGBCOLOR;
   if (source->format == EpicPixelFormat_A2 || source->format == EpicPixelFormat_A4 ||
-      source->format == EpicPixelFormat_A8) {
+      source->format == EpicPixelFormat_A8 || source->format == EpicPixelFormat_Mono) {
     input->color_en = true;
     input->color_r = (source->color_argb8888 >> 16) & 0xff;
     input->color_g = (source->color_argb8888 >> 8) & 0xff;
@@ -384,6 +443,18 @@ static void prv_configure_input(EPIC_LayerConfigTypeDef *input, const EpicLayer 
   }
   input->lookup_table = (uint8_t *)source->palette;
   input->lookup_table_size = source->palette_entries;
+  input->data_size = source->data_size;
+  if (prv_is_yuv422(source->format)) {
+    input->yuv.y_buf = input->data;
+  } else if (source->format == EpicPixelFormat_YUV420_Planar) {
+    input->yuv.y_buf = input->data;
+    input->yuv.u_buf =
+        prv_region_data(source->u_data, EpicPixelFormat_L8, source->stride_pixels / 2,
+                        source->data_x / 2, source->data_y / 2);
+    input->yuv.v_buf =
+        prv_region_data(source->v_data, EpicPixelFormat_L8, source->stride_pixels / 2,
+                        source->data_x / 2, source->data_y / 2);
+  }
   input->transform_cfg.angle = source->angle;
   input->transform_cfg.pivot_x = source->pivot_x;
   input->transform_cfg.pivot_y = source->pivot_y;
@@ -392,8 +463,18 @@ static void prv_configure_input(EPIC_LayerConfigTypeDef *input, const EpicLayer 
   input->transform_cfg.h_mirror = source->h_mirror;
   input->transform_cfg.v_mirror = source->v_mirror;
 
-  prv_cache_flush(input->data, prv_region_size(source->format, source->stride_pixels, source->width,
-                                               source->height));
+  if (source->format == EpicPixelFormat_EZIP) {
+    prv_cache_flush(input->data, source->data_size);
+  } else {
+    prv_cache_flush(input->data, prv_region_size(source->format, source->stride_pixels,
+                                                 source->width, source->height));
+  }
+  if (source->format == EpicPixelFormat_YUV420_Planar) {
+    size_t chroma_size = prv_region_size(EpicPixelFormat_L8, source->stride_pixels / 2,
+                                         source->width / 2, source->height / 2);
+    prv_cache_flush(input->yuv.u_buf, chroma_size);
+    prv_cache_flush(input->yuv.v_buf, chroma_size);
+  }
   if (source->palette) {
     prv_cache_flush(source->palette, source->palette_entries * sizeof(*source->palette));
   }
@@ -555,6 +636,10 @@ bool epic_blend_async(const EpicLayer *layers, size_t layer_count, const EpicBuf
 
 void epic_irq_handler(void *unused) {
   HAL_EPIC_IRQHandler(&s_handle);
+}
+
+void epic_ezip_irq_handler(void *unused) {
+  HAL_EZIP_IRQHandler(&s_ezip_handle);
 }
 
 void epic_build_gcolor8_palette(uint32_t palette[256]) {
@@ -803,7 +888,42 @@ bool epic_run_benchmark(EpicBenchmarkResult *result) {
       .palette_entries = 256,
   };
   result->l8_cycles = prv_measure_blend(&source, 1, &output);
-  result->output_valid =
-      result->l8_cycles && s_benchmark_output[0] == 0xffff && s_benchmark_output[1] == 0x0000;
+  if (!result->l8_cycles || s_benchmark_output[0] != 0xffff || s_benchmark_output[1] != 0x0000) {
+    return false;
+  }
+
+  memset(s_benchmark_mask, 0, sizeof(s_benchmark_mask));
+  s_benchmark_mask[0] = 255;
+  source = (EpicLayer){
+      .data = s_benchmark_mask,
+      .format = EpicPixelFormat_Mono,
+      .width = EPIC_BENCHMARK_SIDE,
+      .height = EPIC_BENCHMARK_SIDE,
+      .stride_pixels = EPIC_BENCHMARK_SIDE,
+      .alpha = 255,
+      .color_argb8888 = 0xffff0000,
+  };
+  result->mono_cycles = prv_measure_blend(&source, 1, &output);
+  if (!result->mono_cycles || s_benchmark_output[0] != 0xf800 || s_benchmark_output[1] != 0x0000) {
+    return false;
+  }
+
+  uint8_t *yuyv = (uint8_t *)s_benchmark_a;
+  for (size_t i = 0; i < sizeof(s_benchmark_a); i += 4) {
+    yuyv[i] = 16;
+    yuyv[i + 1] = 128;
+    yuyv[i + 2] = 16;
+    yuyv[i + 3] = 128;
+  }
+  source = (EpicLayer){
+      .data = yuyv,
+      .format = EpicPixelFormat_YUV422_YUYV,
+      .width = EPIC_BENCHMARK_SIDE,
+      .height = EPIC_BENCHMARK_SIDE,
+      .stride_pixels = EPIC_BENCHMARK_SIDE,
+      .alpha = 255,
+  };
+  result->yuv_cycles = prv_measure_blend(&source, 1, &output);
+  result->output_valid = result->yuv_cycles && prv_all_pixels_equal(s_benchmark_output, 0x0000);
   return result->output_valid;
 }

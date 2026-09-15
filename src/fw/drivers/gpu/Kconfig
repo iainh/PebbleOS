@@ -6,6 +6,7 @@ config GPU_EPIC
     depends on SOC_SF32LB52
     select HAL_SIFLI
     select HAL_SIFLI_EPIC
+    select HAL_SIFLI_EZIP
     help
       Enable the SiFli ePicasso 2.0 graphics accelerator driver.
 

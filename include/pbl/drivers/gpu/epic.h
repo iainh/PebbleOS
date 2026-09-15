@@ -18,6 +18,11 @@ typedef enum {
   EpicPixelFormat_A8,
   EpicPixelFormat_A4,
   EpicPixelFormat_A2,
+  EpicPixelFormat_Mono,
+  EpicPixelFormat_YUV422_YUYV,
+  EpicPixelFormat_YUV422_UYVY,
+  EpicPixelFormat_YUV420_Planar,
+  EpicPixelFormat_EZIP,
 } EpicPixelFormat;
 
 typedef enum {
@@ -34,6 +39,11 @@ typedef struct {
 
 typedef struct {
   uint8_t *data;
+  //! U and V planes for YUV420 planar input.
+  uint8_t *u_data;
+  uint8_t *v_data;
+  //! Compressed byte count for EZIP input.
+  uint32_t data_size;
   EpicPixelFormat format;
   EpicAlphaMode alpha_mode;
   uint16_t width;
@@ -89,6 +99,8 @@ typedef struct {
   uint32_t mirror_cycles;
   uint32_t mask_cycles;
   uint32_t l8_cycles;
+  uint32_t mono_cycles;
+  uint32_t yuv_cycles;
   bool output_valid;
 } EpicBenchmarkResult;
 
@@ -112,6 +124,7 @@ bool epic_copy_async(const EpicLayer *source, const EpicBuffer *destination,
 bool epic_blend_async(const EpicLayer *layers, size_t layer_count, const EpicBuffer *destination,
                       EpicCompleteCallback callback, void *context);
 void epic_irq_handler(void *unused);
+void epic_ezip_irq_handler(void *unused);
 
 //! Populate a 256-entry ARGB8888 palette mapping Pebble ARGB2222 pixels to opaque RGB.
 void epic_build_gcolor8_palette(uint32_t palette[256]);

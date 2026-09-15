@@ -23,7 +23,13 @@ The driver supports these formats:
 
 - RGB565, ARGB8565, RGB888 and ARGB8888 colour data
 - L8 colour data with an ARGB8888 palette
-- A2, A4 and A8 alpha data; A4 and A8 layers can also mask the preceding layer
+- A2, A4, A8 and monochrome data; A4 and A8 layers can mask the preceding layer
+- packed YUYV and UYVY YUV422, and three-plane YUV420 data
+- hardware-compressed EZIP images
+
+Set `u_data` and `v_data` for YUV420 input. Set `data_size` to the compressed
+byte count for EZIP input. EPIC can process at most one YUV and one EZIP layer
+per operation. EZIP source rectangles aren't supported.
 
 `epic_fill`, `epic_fill_gradient`, `epic_copy` and `epic_blend` serialize access
 to the peripheral, perform cache maintenance and wait for interrupt-driven
@@ -35,7 +41,8 @@ Use `epic_layer_set_source_rect` and `epic_buffer_set_destination_rect` to
 select a rectangle within a larger strided buffer. The driver adjusts the DMA
 address and cache span. `epic_clip_layer` intersects an untransformed layer
 with a canvas-space rectangle and adjusts its source rectangle. Packed A2 and
-A4 source rectangles must start on a byte boundary.
+A4 source rectangles must start on a byte boundary. YUV422 rectangles must be
+chroma-pair aligned; YUV420 rectangles must use even coordinates and sizes.
 
 The base API is synchronous. Don't call it from an interrupt handler.
 
@@ -54,10 +61,11 @@ epic benchmark
 ```
 
 The command checks complete solid and gradient fills, copy output, alpha
-blending, asymmetric rotation and mirroring, scaling, A8 masking and L8 palette
-expansion on private 32 × 32 buffers. It reports the CPU cycles spent waiting
-for each operation and ends with `output=valid` when the generated pixels match
-the expected values.
+blending, asymmetric rotation and mirroring, scaling, A8 masking, L8 palette
+expansion, monochrome input and YUV422 conversion on private 32 × 32 buffers.
+It reports the CPU cycles spent waiting for each operation and ends with
+`output=valid` when the generated pixels match the expected values. Validate
+EZIP with a product image because the benchmark doesn't embed compressed data.
 
 Also check these display states on hardware:
 

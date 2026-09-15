@@ -221,6 +221,7 @@ DisplayJDIDevice *const DISPLAY = &s_display;
 IRQ_MAP(LCDC1, display_jdi_irq_handler, DISPLAY);
 #ifdef CONFIG_GPU_EPIC
 IRQ_MAP(EPIC, epic_irq_handler, NULL);
+IRQ_MAP(EZIP, epic_ezip_irq_handler, NULL);
 #endif
 
 const LedControllerAW9364E AW9364E = {
