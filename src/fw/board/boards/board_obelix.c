@@ -168,6 +168,9 @@ static DisplayJDIDevice s_display = {
 
 DisplayJDIDevice *const DISPLAY = &s_display;
 IRQ_MAP(LCDC1, display_jdi_irq_handler, DISPLAY);
+#ifdef CONFIG_GPU_EPIC
+IRQ_MAP(EPIC, epic_irq_handler, NULL);
+#endif
 
 #ifdef NIMBLE_HCI_SF32LB52_TRACE_BINARY
 static UARTDeviceState s_hci_trace_uart_state = {

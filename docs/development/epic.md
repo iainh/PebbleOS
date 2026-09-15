@@ -1,20 +1,20 @@
 # ePicasso graphics accelerator
 
-Getafix uses the SF32LB52 ePicasso 2.0 (EPIC) graphics accelerator for
-framebuffer conversion. The firmware also provides a small synchronous driver
-for fill, copy, blend, palette expansion, rotation, scaling and mirroring.
+Obelix and Getafix use the SF32LB52 ePicasso 2.0 (EPIC) graphics accelerator
+for framebuffer conversion. The firmware also provides a driver for fill,
+copy, blend, palette expansion, rotation, scaling and mirroring.
 
 ## Configuration
 
-`CONFIG_GPU_EPIC` enables the driver and SiFli EPIC HAL. Getafix also enables
-`CONFIG_DISPLAY_JDI_SF32LB_EPIC`, which converts the compositor's ARGB2222
-framebuffer to RGB565 before LCDC sends it to the display.
+`CONFIG_GPU_EPIC` enables the driver and SiFli EPIC HAL. Obelix and Getafix
+also enable `CONFIG_DISPLAY_JDI_SF32LB_EPIC`, which converts the compositor's
+ARGB2222 framebuffer to RGB565 before LCDC sends it to the display.
 
-EPIC can't output ARGB2222 directly. A full 260 × 260 RGB565 intermediate
-framebuffer would require 135,200 bytes, so the display driver converts and
-sends 20-row strips. Two strips and the palette require about 21 KiB. While
-LCDC sends one strip, EPIC converts the next. Apps continue to use the existing
-ARGB2222 framebuffer and APIs.
+EPIC can't output ARGB2222 directly. A full-screen RGB565 intermediate buffer
+would require 91,200 bytes on Obelix or 135,200 bytes on Getafix, so the display
+driver converts and sends 20-row strips. Two strips and the palette require no
+more than about 21 KiB. While LCDC sends one strip, EPIC converts the next. Apps
+continue to use the existing ARGB2222 framebuffer and APIs.
 
 ## Driver API
 
@@ -41,7 +41,7 @@ the current operation to finish before starting the new operation.
 
 ## Hardware validation
 
-Build and flash Getafix firmware, open the serial console, then run:
+Build and flash Obelix firmware, open the serial console, then run:
 
 ```text
 epic benchmark
