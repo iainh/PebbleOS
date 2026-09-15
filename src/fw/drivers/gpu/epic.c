@@ -24,7 +24,19 @@ PBL_LOG_MODULE_DEFINE(driver_gpu_epic, CONFIG_DRIVER_GPU_EPIC_LOG_LEVEL);
 static EPIC_HandleTypeDef s_handle;
 static PBL_MUTEX_DEFINE(s_mutex);
 static PBL_SEM_DEFINE(s_complete, 0, 1);
+static PBL_SEM_DEFINE(s_idle, 1, 1);
 static bool s_initialized;
+
+typedef struct {
+  void *destination;
+  size_t destination_size;
+  EpicCompleteCallback callback;
+  void *context;
+  uint32_t generation;
+  volatile bool active;
+} EpicOperation;
+
+static EpicOperation s_operation;
 
 static ALIGN(32) uint16_t s_benchmark_a[EPIC_BENCHMARK_PIXELS];
 static ALIGN(32) uint16_t s_benchmark_b[EPIC_BENCHMARK_PIXELS];
@@ -102,6 +114,18 @@ static void prv_cache_complete_destination(void *data, size_t size) {
 }
 
 static void prv_complete_callback(EPIC_HandleTypeDef *handle) {
+  prv_cache_complete_destination(s_operation.destination, s_operation.destination_size);
+  EpicCompleteCallback callback = s_operation.callback;
+  void *context = s_operation.context;
+  s_operation.active = false;
+  soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
+  pbl_sem_give(&s_idle);
+  if (callback) {
+    callback(context);
+  }
+}
+
+static void prv_sync_complete(void *context) {
   pbl_sem_give(&s_complete);
 }
 
@@ -139,43 +163,76 @@ static void prv_recover_locked(void) {
   prv_init_locked();
 }
 
-static bool prv_wait_locked(HAL_StatusTypeDef start_status, void *destination,
-                            size_t destination_size) {
+static bool prv_start_locked(HAL_StatusTypeDef start_status) {
   if (start_status != HAL_OK) {
     PBL_LOG_ERR("EPIC operation start failed: %d", (int)start_status);
     s_handle.XferCpltCallback = NULL;
+    s_operation.active = false;
     prv_recover_locked();
     soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
+    pbl_sem_give(&s_idle);
+    pbl_mutex_unlock(&s_mutex);
     return false;
   }
 
-  if (pbl_sem_take(&s_complete, PBL_MSEC(EPIC_OPERATION_TIMEOUT_MS)) != 0) {
-    PBL_LOG_ERR("EPIC operation timed out: state=%d error=0x%lx", (int)s_handle.State,
-                (unsigned long)s_handle.ErrorCode);
-    prv_recover_locked();
-    soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
-    return false;
-  }
-
-  prv_cache_complete_destination(destination, destination_size);
-  soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
+  pbl_mutex_unlock(&s_mutex);
   return true;
 }
 
-static bool prv_begin_locked(const EpicBuffer *destination, size_t *destination_size) {
+static bool prv_wait(uint32_t generation) {
+  if (pbl_sem_take(&s_complete, PBL_MSEC(EPIC_OPERATION_TIMEOUT_MS)) == 0) {
+    return true;
+  }
+
+  pbl_mutex_lock(&s_mutex, PBL_FOREVER);
+  HAL_NVIC_DisableIRQ(EPIC_IRQn);
+  bool timed_out = s_operation.active && s_operation.generation == generation;
+  if (timed_out) {
+    PBL_LOG_ERR("EPIC operation timed out: state=%d error=0x%lx", (int)s_handle.State,
+                (unsigned long)s_handle.ErrorCode);
+    s_operation.active = false;
+    prv_recover_locked();
+    soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
+    pbl_sem_give(&s_idle);
+  } else {
+    HAL_NVIC_EnableIRQ(EPIC_IRQn);
+  }
+  pbl_mutex_unlock(&s_mutex);
+
+  return !timed_out && pbl_sem_take(&s_complete, PBL_NO_WAIT) == 0;
+}
+
+static bool prv_begin(const EpicBuffer *destination, pbl_timeout_t timeout,
+                      EpicCompleteCallback callback, void *context, uint32_t *generation) {
   if (!destination || !destination->data || !destination->width || !destination->height ||
       destination->stride_pixels < destination->width ||
       !prv_valid_output_format(destination->format)) {
     return false;
   }
-  if (!prv_init_locked()) {
+  if (pbl_sem_take(&s_idle, timeout) != 0) {
     return false;
   }
+  pbl_mutex_lock(&s_mutex, PBL_FOREVER);
+  if (!prv_init_locked()) {
+    pbl_mutex_unlock(&s_mutex);
+    pbl_sem_give(&s_idle);
+    return false;
+  }
+  if (callback == prv_sync_complete) {
+    pbl_sem_reset(&s_complete);
+  }
 
-  *destination_size =
+  s_operation.destination = destination->data;
+  s_operation.destination_size =
       prv_buffer_size(destination->format, destination->stride_pixels, destination->height);
-  prv_cache_prepare_destination(destination->data, *destination_size);
-  pbl_sem_reset(&s_complete);
+  s_operation.callback = callback;
+  s_operation.context = context;
+  s_operation.generation++;
+  s_operation.active = true;
+  if (generation) {
+    *generation = s_operation.generation;
+  }
+  prv_cache_prepare_destination(destination->data, s_operation.destination_size);
   s_handle.XferCpltCallback = prv_complete_callback;
   soc_sf32lb_sleep_block(SOC_SF32LB_DEEPWFI);
   return true;
@@ -245,11 +302,9 @@ static void prv_configure_input(EPIC_LayerConfigTypeDef *input, const EpicLayer 
   }
 }
 
-bool epic_fill(const EpicBuffer *destination, uint32_t argb8888) {
-  pbl_mutex_lock(&s_mutex, PBL_FOREVER);
-  size_t destination_size;
-  if (!prv_begin_locked(destination, &destination_size)) {
-    pbl_mutex_unlock(&s_mutex);
+static bool prv_fill(const EpicBuffer *destination, uint32_t argb8888, pbl_timeout_t timeout,
+                     EpicCompleteCallback callback, void *context, uint32_t *generation) {
+  if (!prv_begin(destination, timeout, callback, context, generation)) {
     return false;
   }
 
@@ -265,20 +320,15 @@ bool epic_fill(const EpicBuffer *destination, uint32_t argb8888) {
   fill.color_b = argb8888 & 0xff;
   fill.alpha = argb8888 >> 24;
 
-  bool success =
-      prv_wait_locked(HAL_EPIC_FillStart_IT(&s_handle, &fill), destination->data, destination_size);
-  pbl_mutex_unlock(&s_mutex);
-  return success;
+  return prv_start_locked(HAL_EPIC_FillStart_IT(&s_handle, &fill));
 }
 
-bool epic_copy(const EpicLayer *source, const EpicBuffer *destination) {
+static bool prv_copy(const EpicLayer *source, const EpicBuffer *destination, pbl_timeout_t timeout,
+                     EpicCompleteCallback callback, void *context, uint32_t *generation) {
   if (!source || !prv_valid_input(source) || source->alpha_mode == EpicAlphaMode_Mask) {
     return false;
   }
-  pbl_mutex_lock(&s_mutex, PBL_FOREVER);
-  size_t destination_size;
-  if (!prv_begin_locked(destination, &destination_size)) {
-    pbl_mutex_unlock(&s_mutex);
+  if (!prv_begin(destination, timeout, callback, context, generation)) {
     return false;
   }
 
@@ -286,14 +336,13 @@ bool epic_copy(const EpicLayer *source, const EpicBuffer *destination) {
   EPIC_LayerConfigTypeDef output;
   prv_configure_input(&input, source);
   prv_configure_output(&output, destination);
-  bool success = prv_wait_locked(HAL_EPIC_Copy_IT(&s_handle, (EPIC_BlendingDataType *)&input,
-                                                  (EPIC_BlendingDataType *)&output),
-                                 destination->data, destination_size);
-  pbl_mutex_unlock(&s_mutex);
-  return success;
+  return prv_start_locked(HAL_EPIC_Copy_IT(&s_handle, (EPIC_BlendingDataType *)&input,
+                                           (EPIC_BlendingDataType *)&output));
 }
 
-bool epic_blend(const EpicLayer *layers, size_t layer_count, const EpicBuffer *destination) {
+static bool prv_blend(const EpicLayer *layers, size_t layer_count, const EpicBuffer *destination,
+                      pbl_timeout_t timeout, EpicCompleteCallback callback, void *context,
+                      uint32_t *generation) {
   if (!layers || !layer_count || layer_count > EPIC_MAX_INPUT_LAYERS) {
     return false;
   }
@@ -309,10 +358,7 @@ bool epic_blend(const EpicLayer *layers, size_t layer_count, const EpicBuffer *d
       has_mask = true;
     }
   }
-  pbl_mutex_lock(&s_mutex, PBL_FOREVER);
-  size_t destination_size;
-  if (!prv_begin_locked(destination, &destination_size)) {
-    pbl_mutex_unlock(&s_mutex);
+  if (!prv_begin(destination, timeout, callback, context, generation)) {
     return false;
   }
 
@@ -322,10 +368,47 @@ bool epic_blend(const EpicLayer *layers, size_t layer_count, const EpicBuffer *d
     prv_configure_input(&inputs[i], &layers[i]);
   }
   prv_configure_output(&output, destination);
-  bool success = prv_wait_locked(HAL_EPIC_BlendStartEx_IT(&s_handle, inputs, layer_count, &output),
-                                 destination->data, destination_size);
-  pbl_mutex_unlock(&s_mutex);
-  return success;
+  return prv_start_locked(HAL_EPIC_BlendStartEx_IT(&s_handle, inputs, layer_count, &output));
+}
+
+bool epic_fill(const EpicBuffer *destination, uint32_t argb8888) {
+  uint32_t generation;
+  if (!prv_fill(destination, argb8888, PBL_FOREVER, prv_sync_complete, NULL, &generation)) {
+    return false;
+  }
+  return prv_wait(generation);
+}
+
+bool epic_copy(const EpicLayer *source, const EpicBuffer *destination) {
+  uint32_t generation;
+  if (!prv_copy(source, destination, PBL_FOREVER, prv_sync_complete, NULL, &generation)) {
+    return false;
+  }
+  return prv_wait(generation);
+}
+
+bool epic_blend(const EpicLayer *layers, size_t layer_count, const EpicBuffer *destination) {
+  uint32_t generation;
+  if (!prv_blend(layers, layer_count, destination, PBL_FOREVER, prv_sync_complete, NULL,
+                 &generation)) {
+    return false;
+  }
+  return prv_wait(generation);
+}
+
+bool epic_fill_async(const EpicBuffer *destination, uint32_t argb8888,
+                     EpicCompleteCallback callback, void *context) {
+  return prv_fill(destination, argb8888, PBL_FOREVER, callback, context, NULL);
+}
+
+bool epic_copy_async(const EpicLayer *source, const EpicBuffer *destination,
+                     EpicCompleteCallback callback, void *context) {
+  return prv_copy(source, destination, PBL_FOREVER, callback, context, NULL);
+}
+
+bool epic_blend_async(const EpicLayer *layers, size_t layer_count, const EpicBuffer *destination,
+                      EpicCompleteCallback callback, void *context) {
+  return prv_blend(layers, layer_count, destination, PBL_FOREVER, callback, context, NULL);
 }
 
 void epic_irq_handler(void *unused) {

@@ -17,6 +17,7 @@
 #include "pbl/services/new_timer/new_timer.h"
 #include <pbl/logging/logging.h>
 #include <pbl/util/math.h>
+#include <pbl/util/size.h>
 #include "system/passert.h"
 
 #include "pbl/kernel/sem.h"
@@ -71,10 +72,26 @@ static volatile bool s_eof_observed;
 static volatile uint32_t s_lcdc_pre_crash_regs[DISPLAY_LCDC_REG_DUMP_BYTES / sizeof(uint32_t)];
 
 #ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
-static uint16_t s_strip_y;
-static uint16_t s_strip_rows;
-static uint16_t s_epic_strip[PBL_DISPLAY_WIDTH * EPIC_STRIP_ROWS] __attribute__((aligned(32)));
+typedef enum {
+  EpicStripState_Free,
+  EpicStripState_Converting,
+  EpicStripState_Ready,
+  EpicStripState_Sending,
+} EpicStripState;
+
+typedef struct {
+  uint16_t data[PBL_DISPLAY_WIDTH * EPIC_STRIP_ROWS];
+  uint16_t y;
+  uint16_t rows;
+  EpicStripState state;
+} EpicStrip;
+
+static EpicStrip s_epic_strips[2] __attribute__((aligned(32)));
 static uint32_t s_epic_palette[256] __attribute__((aligned(32)));
+static uint16_t s_next_strip_y;
+static EpicStrip *s_sending_strip;
+static bool s_lcdc_active;
+static bool s_pipeline_failed;
 #endif
 
 // Ring buffer of recent LCDC interrupts, recorded by display_jdi_irq_handler
@@ -196,12 +213,26 @@ static HAL_StatusTypeDef prv_lcdc_update_start(uint8_t *data, uint16_t y0, uint1
 }
 
 #ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
-static HAL_StatusTypeDef prv_display_update_start(void) {
-  const uint16_t rows_remaining = s_update_y1 - s_strip_y + 1;
-  s_strip_rows = MIN(rows_remaining, EPIC_STRIP_ROWS);
-  uint16_t source_y = s_strip_y;
+static void prv_epic_strip_complete(void *data);
+static void prv_display_pipeline_advance(void);
+
+static void prv_epic_strip_complete_isr(void *context) {
+  PebbleEvent event = {
+    .type = PEBBLE_CALLBACK_EVENT,
+    .callback = {
+      .callback = prv_epic_strip_complete,
+      .data = context,
+    },
+  };
+  event_put_isr(&event);
+}
+
+static bool prv_epic_strip_start(EpicStrip *strip) {
+  strip->y = s_next_strip_y;
+  strip->rows = MIN(s_update_y1 - strip->y + 1, EPIC_STRIP_ROWS);
+  uint16_t source_y = strip->y;
   if (s_rotated_180) {
-    source_y = PBL_DISPLAY_HEIGHT - s_strip_y - s_strip_rows;
+    source_y = PBL_DISPLAY_HEIGHT - strip->y - strip->rows;
   }
 
   EpicLayer source = {
@@ -209,7 +240,7 @@ static HAL_StatusTypeDef prv_display_update_start(void) {
     .format = EpicPixelFormat_L8,
     .alpha_mode = EpicAlphaMode_Normal,
     .width = PBL_DISPLAY_WIDTH,
-    .height = s_strip_rows,
+    .height = strip->rows,
     .stride_pixels = PBL_DISPLAY_WIDTH,
     .alpha = 255,
     .palette = s_epic_palette,
@@ -218,18 +249,20 @@ static HAL_StatusTypeDef prv_display_update_start(void) {
     .v_mirror = s_rotated_180,
   };
   EpicBuffer destination = {
-    .data = (uint8_t *)s_epic_strip,
+    .data = (uint8_t *)strip->data,
     .format = EpicPixelFormat_RGB565,
     .width = PBL_DISPLAY_WIDTH,
-    .height = s_strip_rows,
+    .height = strip->rows,
     .stride_pixels = PBL_DISPLAY_WIDTH,
   };
-  if (!epic_blend(&source, 1, &destination)) {
-    return HAL_ERROR;
+  strip->state = EpicStripState_Converting;
+  if (!epic_blend_async(&source, 1, &destination, prv_epic_strip_complete_isr, strip)) {
+    strip->state = EpicStripState_Free;
+    return false;
   }
 
-  return prv_lcdc_update_start((uint8_t *)s_epic_strip, s_strip_y,
-                               s_strip_y + s_strip_rows - 1, LCDC_PIXEL_FORMAT_RGB565);
+  s_next_strip_y += strip->rows;
+  return true;
 }
 #else
 static HAL_StatusTypeDef prv_display_update_start(void) {
@@ -295,22 +328,75 @@ static void prv_display_update_finish(void) {
   soc_sf32lb_sleep_release(SOC_SF32LB_DEEPWFI);
 }
 
+#ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
+static EpicStrip *prv_find_strip(EpicStripState state) {
+  EpicStrip *found = NULL;
+  for (size_t i = 0; i < ARRAY_LENGTH(s_epic_strips); ++i) {
+    if (s_epic_strips[i].state == state && (!found || s_epic_strips[i].y < found->y)) {
+      found = &s_epic_strips[i];
+    }
+  }
+  return found;
+}
+
+static void prv_display_pipeline_advance(void) {
+  if (!s_lcdc_active && !s_pipeline_failed) {
+    EpicStrip *ready = prv_find_strip(EpicStripState_Ready);
+    if (ready) {
+      s_eof_observed = false;
+      new_timer_start(s_silent_loss_timer, DISPLAY_SILENT_LOSS_TIMEOUT_MS,
+                      prv_silent_loss_handler, NULL, 0);
+      HAL_StatusTypeDef status = prv_lcdc_update_start(
+          (uint8_t *)ready->data, ready->y, ready->y + ready->rows - 1,
+          LCDC_PIXEL_FORMAT_RGB565);
+      if (status == HAL_OK) {
+        ready->state = EpicStripState_Sending;
+        s_sending_strip = ready;
+        s_lcdc_active = true;
+      } else {
+        prv_handle_send_failure("strip", status);
+        new_timer_stop(s_silent_loss_timer);
+        ready->state = EpicStripState_Free;
+        s_pipeline_failed = true;
+      }
+    }
+  }
+
+  if (!s_pipeline_failed && s_next_strip_y <= s_update_y1 &&
+      !prv_find_strip(EpicStripState_Converting)) {
+    EpicStrip *free_strip = prv_find_strip(EpicStripState_Free);
+    if (free_strip && !prv_epic_strip_start(free_strip)) {
+      PBL_LOG_ERR("display: EPIC strip conversion failed");
+      s_pipeline_failed = true;
+    }
+  }
+
+  bool conversion_active = prv_find_strip(EpicStripState_Converting) != NULL;
+  bool strip_ready = prv_find_strip(EpicStripState_Ready) != NULL;
+  bool all_converted = s_next_strip_y > s_update_y1;
+  if (!s_lcdc_active && !conversion_active &&
+      (s_pipeline_failed || (all_converted && !strip_ready))) {
+    prv_display_update_finish();
+  }
+}
+
+static void prv_epic_strip_complete(void *data) {
+  EpicStrip *strip = data;
+  strip->state = EpicStripState_Ready;
+  prv_display_pipeline_advance();
+}
+#endif
+
 static void prv_display_update_terminate(void *data) {
   new_timer_stop(s_silent_loss_timer);
 
 #ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
-  if (s_strip_y + s_strip_rows <= s_update_y1) {
-    s_strip_y += s_strip_rows;
-    s_eof_observed = false;
-    new_timer_start(s_silent_loss_timer, DISPLAY_SILENT_LOSS_TIMEOUT_MS,
-                    prv_silent_loss_handler, NULL, 0);
-    HAL_StatusTypeDef status = prv_display_update_start();
-    if (status == HAL_OK) {
-      return;
-    }
-    prv_handle_send_failure("strip", status);
-    new_timer_stop(s_silent_loss_timer);
+  s_lcdc_active = false;
+  if (s_sending_strip) {
+    s_sending_strip->state = EpicStripState_Free;
+    s_sending_strip = NULL;
   }
+  prv_display_pipeline_advance();
 #else
   // Convert the updated region back from 332 to 222 format
   for (uint16_t y = s_update_y0; y <= s_update_y1; y++) {
@@ -336,9 +422,9 @@ static void prv_display_update_terminate(void *data) {
                  (p & 0x03030303);          // B: bits 0-1 stay
     }
   }
-#endif
 
   prv_display_update_finish();
+#endif
 }
 
 void display_jdi_irq_handler(DisplayJDIDevice *disp) {
@@ -534,10 +620,19 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
   s_updating = true;
   s_eof_observed = false;
 #ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
-  s_strip_y = s_update_y0;
+  s_next_strip_y = s_update_y0;
+  s_sending_strip = NULL;
+  s_lcdc_active = false;
+  s_pipeline_failed = false;
+  for (size_t i = 0; i < ARRAY_LENGTH(s_epic_strips); ++i) {
+    s_epic_strips[i].state = EpicStripState_Free;
+  }
 #endif
 
   soc_sf32lb_sleep_block(SOC_SF32LB_DEEPWFI);
+#ifdef CONFIG_DISPLAY_JDI_SF32LB_EPIC
+  prv_display_pipeline_advance();
+#else
   // Arm the timer before kickoff so the EOF IRQ, which can fire as soon as
   // SendLayerData_IT returns, never races us into a state where the timer
   // isn't yet armed. prv_display_update_terminate stops it on the normal
@@ -551,6 +646,7 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
     new_timer_stop(s_silent_loss_timer);
     prv_display_update_finish();
   }
+#endif
 }
 
 void display_update_boot_frame(uint8_t *framebuffer) {

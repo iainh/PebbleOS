@@ -12,8 +12,9 @@ framebuffer to RGB565 before LCDC sends it to the display.
 
 EPIC can't output ARGB2222 directly. A full 260 × 260 RGB565 intermediate
 framebuffer would require 135,200 bytes, so the display driver converts and
-sends 20-row strips. The strip and palette require about 11 KiB. Apps continue
-to use the existing ARGB2222 framebuffer and APIs.
+sends 20-row strips. Two strips and the palette require about 21 KiB. While
+LCDC sends one strip, EPIC converts the next. Apps continue to use the existing
+ARGB2222 framebuffer and APIs.
 
 ## Driver API
 
@@ -29,7 +30,13 @@ perform cache maintenance and wait for interrupt-driven completion. Rotation
 angles use tenths of a degree. A scale value of zero selects a 1:1 scale.
 Set `color_argb8888` to choose the RGB colour drawn by an alpha-only layer.
 
-The API is synchronous. Don't call it from an interrupt handler.
+The base API is synchronous. Don't call it from an interrupt handler.
+
+The corresponding `*_async` functions return immediately and report
+completion through an `EpicCompleteCallback`. The callback may run in interrupt
+context and must not block. An asynchronous submission returns `false` when
+its arguments are invalid or the operation can't start. Submission waits for
+the current operation to finish before starting the new operation.
 
 ## Hardware validation
 

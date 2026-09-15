@@ -66,10 +66,19 @@ typedef struct {
   bool output_valid;
 } EpicBenchmarkResult;
 
+//! Called from the EPIC interrupt after destination cache maintenance completes.
+typedef void (*EpicCompleteCallback)(void *context);
+
 bool epic_init(void);
 bool epic_fill(const EpicBuffer *destination, uint32_t argb8888);
 bool epic_copy(const EpicLayer *source, const EpicBuffer *destination);
 bool epic_blend(const EpicLayer *layers, size_t layer_count, const EpicBuffer *destination);
+bool epic_fill_async(const EpicBuffer *destination, uint32_t argb8888,
+                     EpicCompleteCallback callback, void *context);
+bool epic_copy_async(const EpicLayer *source, const EpicBuffer *destination,
+                     EpicCompleteCallback callback, void *context);
+bool epic_blend_async(const EpicLayer *layers, size_t layer_count, const EpicBuffer *destination,
+                      EpicCompleteCallback callback, void *context);
 void epic_irq_handler(void *unused);
 
 //! Populate a 256-entry ARGB8888 palette mapping Pebble ARGB2222 pixels to opaque RGB.
