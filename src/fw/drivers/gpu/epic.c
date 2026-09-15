@@ -10,6 +10,7 @@
 #include "pbl/soc/sf32lb/sleep.h"
 #include "pbl/util/attributes.h"
 #include <pbl/logging/logging.h>
+#include <pbl/util/math.h>
 
 #include <cmsis_core.h>
 #include <string.h>
@@ -91,6 +92,35 @@ static size_t prv_buffer_size(EpicPixelFormat format, uint16_t stride_pixels, ui
   return row_size * height;
 }
 
+static bool prv_data_x_is_aligned(EpicPixelFormat format, uint16_t data_x) {
+  return ((uint32_t)prv_bits_per_pixel(format) * data_x) % 8 == 0;
+}
+
+static uint8_t *prv_region_data(uint8_t *data, EpicPixelFormat format, uint16_t stride_pixels,
+                                uint16_t data_x, uint16_t data_y) {
+  size_t row_size = prv_buffer_size(format, stride_pixels, 1);
+  return data + row_size * data_y + ((size_t)prv_bits_per_pixel(format) * data_x) / 8;
+}
+
+static size_t prv_region_size(EpicPixelFormat format, uint16_t stride_pixels, uint16_t width,
+                              uint16_t height) {
+  if (height == 0) {
+    return 0;
+  }
+  size_t row_size = prv_buffer_size(format, stride_pixels, 1);
+  size_t last_row_size = ((size_t)prv_bits_per_pixel(format) * width + 7) / 8;
+  return row_size * (height - 1) + last_row_size;
+}
+
+static bool prv_valid_region(EpicPixelFormat format, uint16_t stride_pixels, uint16_t buffer_height,
+                             uint16_t data_x, uint16_t data_y, uint16_t width, uint16_t height) {
+  uint8_t bits_per_pixel = prv_bits_per_pixel(format);
+  uint32_t effective_height = buffer_height ? buffer_height : (uint32_t)data_y + height;
+  return bits_per_pixel && width && height && stride_pixels >= width &&
+         data_x <= stride_pixels - width && data_y <= effective_height &&
+         height <= effective_height - data_y && prv_data_x_is_aligned(format, data_x);
+}
+
 static bool prv_valid_output_format(EpicPixelFormat format) {
   return format == EpicPixelFormat_RGB565 || format == EpicPixelFormat_ARGB8565 ||
          format == EpicPixelFormat_RGB888 || format == EpicPixelFormat_ARGB8888;
@@ -156,6 +186,64 @@ bool epic_init(void) {
   return initialized;
 }
 
+bool epic_layer_set_source_rect(EpicLayer *layer, EpicRect rect, uint16_t buffer_height) {
+  if (!layer || rect.x < 0 || rect.y < 0 ||
+      !prv_valid_region(layer->format, layer->stride_pixels, buffer_height, rect.x, rect.y,
+                        rect.width, rect.height)) {
+    return false;
+  }
+  layer->buffer_height = buffer_height;
+  layer->data_x = rect.x;
+  layer->data_y = rect.y;
+  layer->width = rect.width;
+  layer->height = rect.height;
+  return true;
+}
+
+bool epic_buffer_set_destination_rect(EpicBuffer *buffer, EpicRect rect, uint16_t buffer_height) {
+  if (!buffer || rect.x < 0 || rect.y < 0 ||
+      !prv_valid_region(buffer->format, buffer->stride_pixels, buffer_height, rect.x, rect.y,
+                        rect.width, rect.height)) {
+    return false;
+  }
+  buffer->buffer_height = buffer_height;
+  buffer->data_x = rect.x;
+  buffer->data_y = rect.y;
+  buffer->width = rect.width;
+  buffer->height = rect.height;
+  return true;
+}
+
+bool epic_clip_layer(EpicLayer *layer, EpicRect clip) {
+  if (!layer || !clip.width || !clip.height || layer->angle || layer->h_mirror || layer->v_mirror ||
+      (layer->scale_x && layer->scale_x != EPIC_SCALE_ONE) ||
+      (layer->scale_y && layer->scale_y != EPIC_SCALE_ONE) ||
+      !prv_valid_region(layer->format, layer->stride_pixels, layer->buffer_height, layer->data_x,
+                        layer->data_y, layer->width, layer->height)) {
+    return false;
+  }
+
+  int32_t x0 = MAX(layer->x, clip.x);
+  int32_t y0 = MAX(layer->y, clip.y);
+  int32_t x1 = MIN((int32_t)layer->x + layer->width, (int32_t)clip.x + clip.width);
+  int32_t y1 = MIN((int32_t)layer->y + layer->height, (int32_t)clip.y + clip.height);
+  if (x0 >= x1 || y0 >= y1) {
+    return false;
+  }
+
+  uint32_t data_x = (uint32_t)layer->data_x + x0 - layer->x;
+  if (!prv_data_x_is_aligned(layer->format, data_x)) {
+    return false;
+  }
+  layer->data_x = data_x;
+  layer->data_y += y0 - layer->y;
+  layer->x = x0;
+  layer->y = y0;
+  layer->width = x1 - x0;
+  layer->height = y1 - y0;
+  return true;
+}
+
 static void prv_recover_locked(void) {
   HAL_NVIC_DisableIRQ(EPIC_IRQn);
   HAL_RCC_ResetModule(RCC_MOD_EPIC);
@@ -206,7 +294,9 @@ static bool prv_wait(uint32_t generation) {
 static bool prv_begin(const EpicBuffer *destination, pbl_timeout_t timeout,
                       EpicCompleteCallback callback, void *context, uint32_t *generation) {
   if (!destination || !destination->data || !destination->width || !destination->height ||
-      destination->stride_pixels < destination->width ||
+      !prv_valid_region(destination->format, destination->stride_pixels, destination->buffer_height,
+                        destination->data_x, destination->data_y, destination->width,
+                        destination->height) ||
       !prv_valid_output_format(destination->format)) {
     return false;
   }
@@ -223,9 +313,11 @@ static bool prv_begin(const EpicBuffer *destination, pbl_timeout_t timeout,
     pbl_sem_reset(&s_complete);
   }
 
-  s_operation.destination = destination->data;
-  s_operation.destination_size =
-      prv_buffer_size(destination->format, destination->stride_pixels, destination->height);
+  s_operation.destination =
+      prv_region_data(destination->data, destination->format, destination->stride_pixels,
+                      destination->data_x, destination->data_y);
+  s_operation.destination_size = prv_region_size(destination->format, destination->stride_pixels,
+                                                 destination->width, destination->height);
   s_operation.callback = callback;
   s_operation.context = context;
   s_operation.generation++;
@@ -241,7 +333,8 @@ static bool prv_begin(const EpicBuffer *destination, pbl_timeout_t timeout,
 
 static void prv_configure_output(EPIC_LayerConfigTypeDef *output, const EpicBuffer *destination) {
   HAL_EPIC_LayerConfigInit(output);
-  output->data = destination->data;
+  output->data = prv_region_data(destination->data, destination->format, destination->stride_pixels,
+                                 destination->data_x, destination->data_y);
   output->color_mode = prv_hal_format(destination->format);
   output->width = destination->width;
   output->height = destination->height;
@@ -252,7 +345,9 @@ static void prv_configure_output(EPIC_LayerConfigTypeDef *output, const EpicBuff
 }
 
 static bool prv_valid_input(const EpicLayer *source) {
-  if (!source->data || !source->width || !source->height || source->stride_pixels < source->width ||
+  if (!source->data ||
+      !prv_valid_region(source->format, source->stride_pixels, source->buffer_height,
+                        source->data_x, source->data_y, source->width, source->height) ||
       prv_hal_format(source->format) == UINT32_MAX || source->alpha_mode > EpicAlphaMode_Mask) {
     return false;
   }
@@ -269,7 +364,8 @@ static bool prv_valid_input(const EpicLayer *source) {
 
 static void prv_configure_input(EPIC_LayerConfigTypeDef *input, const EpicLayer *source) {
   HAL_EPIC_LayerConfigInit(input);
-  input->data = source->data;
+  input->data = prv_region_data(source->data, source->format, source->stride_pixels, source->data_x,
+                                source->data_y);
   input->color_mode = prv_hal_format(source->format);
   input->width = source->width;
   input->height = source->height;
@@ -296,8 +392,8 @@ static void prv_configure_input(EPIC_LayerConfigTypeDef *input, const EpicLayer 
   input->transform_cfg.h_mirror = source->h_mirror;
   input->transform_cfg.v_mirror = source->v_mirror;
 
-  prv_cache_flush(source->data,
-                  prv_buffer_size(source->format, source->stride_pixels, source->height));
+  prv_cache_flush(input->data, prv_region_size(source->format, source->stride_pixels, source->width,
+                                               source->height));
   if (source->palette) {
     prv_cache_flush(source->palette, source->palette_entries * sizeof(*source->palette));
   }
@@ -311,7 +407,8 @@ static bool prv_fill(const EpicBuffer *destination, uint32_t argb8888, pbl_timeo
 
   EPIC_FillingCfgTypeDef fill;
   HAL_EPIC_FillDataInit(&fill);
-  fill.start = destination->data;
+  fill.start = prv_region_data(destination->data, destination->format, destination->stride_pixels,
+                               destination->data_x, destination->data_y);
   fill.color_mode = prv_hal_format(destination->format);
   fill.width = destination->width;
   fill.height = destination->height;
@@ -340,7 +437,8 @@ static bool prv_fill_gradient(const EpicBuffer *destination, const EpicGradient 
 
   EPIC_GradCfgTypeDef fill;
   HAL_EPIC_FillGradDataInit(&fill);
-  fill.start = destination->data;
+  fill.start = prv_region_data(destination->data, destination->format, destination->stride_pixels,
+                               destination->data_x, destination->data_y);
   fill.color_mode = prv_hal_format(destination->format);
   fill.width = destination->width;
   fill.height = destination->height;
@@ -576,6 +674,32 @@ bool epic_run_benchmark(EpicBenchmarkResult *result) {
       .stride_pixels = EPIC_BENCHMARK_SIDE,
       .alpha = 255,
   };
+  EpicLayer clipped = source;
+  clipped.x = -2;
+  clipped.y = -3;
+  if (!epic_layer_set_source_rect(&clipped, (EpicRect){4, 6, 10, 12}, EPIC_BENCHMARK_SIDE) ||
+      !epic_clip_layer(&clipped, (EpicRect){0, 0, 8, 8}) || clipped.data_x != 6 ||
+      clipped.data_y != 9 || clipped.x != 0 || clipped.y != 0 || clipped.width != 8 ||
+      clipped.height != 8) {
+    return false;
+  }
+  EpicBuffer subregion = output;
+  if (!epic_buffer_set_destination_rect(&subregion, (EpicRect){3, 4, 8, 9}, EPIC_BENCHMARK_SIDE) ||
+      subregion.data_x != 3 || subregion.data_y != 4 || subregion.width != 8 ||
+      subregion.height != 9) {
+    return false;
+  }
+  EpicLayer source_subregion = source;
+  if (!epic_layer_set_source_rect(&source_subregion, (EpicRect){2, 3, 8, 9}, EPIC_BENCHMARK_SIDE) ||
+      !epic_fill(&output, 0xff000000) || !epic_copy(&source_subregion, &subregion) ||
+      s_benchmark_output[4 * EPIC_BENCHMARK_SIDE + 3] != 0xf800 ||
+      s_benchmark_output[3 * EPIC_BENCHMARK_SIDE + 3] != 0x0000 ||
+      s_benchmark_output[4 * EPIC_BENCHMARK_SIDE + 2] != 0x0000 ||
+      s_benchmark_output[12 * EPIC_BENCHMARK_SIDE + 10] != 0xf800 ||
+      s_benchmark_output[13 * EPIC_BENCHMARK_SIDE + 10] != 0x0000 ||
+      s_benchmark_output[12 * EPIC_BENCHMARK_SIDE + 11] != 0x0000) {
+    return false;
+  }
   result->copy_cycles = prv_measure_copy(&source, &output);
   if (!result->copy_cycles || !prv_all_pixels_equal(s_benchmark_output, 0xf800)) {
     return false;

@@ -26,12 +26,22 @@ typedef enum {
 } EpicAlphaMode;
 
 typedef struct {
+  int16_t x;
+  int16_t y;
+  uint16_t width;
+  uint16_t height;
+} EpicRect;
+
+typedef struct {
   uint8_t *data;
   EpicPixelFormat format;
   EpicAlphaMode alpha_mode;
   uint16_t width;
   uint16_t height;
   uint16_t stride_pixels;
+  uint16_t buffer_height;
+  uint16_t data_x;
+  uint16_t data_y;
   int16_t x;
   int16_t y;
   uint8_t alpha;
@@ -55,6 +65,9 @@ typedef struct {
   uint16_t width;
   uint16_t height;
   uint16_t stride_pixels;
+  uint16_t buffer_height;
+  uint16_t data_x;
+  uint16_t data_y;
   int16_t x;
   int16_t y;
 } EpicBuffer;
@@ -83,6 +96,9 @@ typedef struct {
 typedef void (*EpicCompleteCallback)(void *context);
 
 bool epic_init(void);
+bool epic_layer_set_source_rect(EpicLayer *layer, EpicRect rect, uint16_t buffer_height);
+bool epic_buffer_set_destination_rect(EpicBuffer *buffer, EpicRect rect, uint16_t buffer_height);
+bool epic_clip_layer(EpicLayer *layer, EpicRect clip);
 bool epic_fill(const EpicBuffer *destination, uint32_t argb8888);
 bool epic_fill_gradient(const EpicBuffer *destination, const EpicGradient *gradient);
 bool epic_copy(const EpicLayer *source, const EpicBuffer *destination);

@@ -31,6 +31,12 @@ completion. A gradient supplies the ARGB8888 colour at each corner. Rotation
 angles use tenths of a degree. A scale value of zero selects a 1:1 scale. Set
 `color_argb8888` to choose the RGB colour drawn by an alpha-only layer.
 
+Use `epic_layer_set_source_rect` and `epic_buffer_set_destination_rect` to
+select a rectangle within a larger strided buffer. The driver adjusts the DMA
+address and cache span. `epic_clip_layer` intersects an untransformed layer
+with a canvas-space rectangle and adjusts its source rectangle. Packed A2 and
+A4 source rectangles must start on a byte boundary.
+
 The base API is synchronous. Don't call it from an interrupt handler.
 
 The corresponding `*_async` functions return immediately and report
